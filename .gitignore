@@ -28,7 +28,7 @@ out/
 # Env files (keep an .env.example tracked)
 .env
 .env.*
-!.env.example
+.env.example
 
 # OS / editor
 .DS_Store
