@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const API_BASE = import.meta.env.PROD
-  ? import.meta.env.VITE_RAILWAY_API_BASE
+  ? "" // ✅ same-origin (Netlify). Requests go to /api/... and /uploads/... on Netlify domain
   : import.meta.env.VITE_LOCAL_API_BASE;
 
 export const api = axios.create({
@@ -17,7 +17,6 @@ api.interceptors.request.use((config) => {
   if (pin) {
     (config.headers as any)["x-wholesale-pin"] = pin;
   } else {
-    // ✅ important: ensure header is not sent once you exit wholesale
     delete (config.headers as any)["x-wholesale-pin"];
   }
 
