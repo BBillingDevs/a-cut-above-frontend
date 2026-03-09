@@ -225,7 +225,7 @@ export default function AdminDashboardPage() {
           },
           {
             key: "dropoffs",
-            label: "Drop-offs",
+            label: "Deliverys",
             children: (
               <DropoffLocationsTab loading={loading} onReload={loadAll} />
             ),
