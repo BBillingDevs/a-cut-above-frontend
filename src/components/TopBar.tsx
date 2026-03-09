@@ -88,7 +88,6 @@ export default function TopBar() {
 
           <div className="aca-brand__text">
             <div className="aca-brand__title">A CUT ABOVE</div>
-            <div className="aca-brand__subtitle">PREMIUM MEATS</div>
           </div>
         </div>
 

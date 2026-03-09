@@ -38,7 +38,37 @@ type ProductForm = {
   isActive: boolean;
   categoryId: string | null;
   cutType?: string;
+  avgWeightValue?: number | null;
+  avgWeightUnit: "g" | "kg";
 };
+
+function fmtGrams(g: number | null | undefined) {
+  if (g === null || g === undefined) return "—";
+  return g >= 1000 ? `${(g / 1000).toFixed(2)} kg` : `${g} g`;
+}
+
+/** Convert display value + unit → integer grams for storage */
+function toGrams(
+  value: number | null | undefined,
+  unit: "g" | "kg",
+): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value) || value < 0) return null;
+  return unit === "kg" ? Math.round(value * 1000) : Math.round(value);
+}
+
+/** Convert stored grams → { value, unit } for display in the form */
+function fromGrams(grams: number | null | undefined): {
+  value: number | null;
+  unit: "g" | "kg";
+} {
+  if (grams === null || grams === undefined) return { value: null, unit: "g" };
+  if (grams >= 1000 && grams % 1000 === 0)
+    return { value: grams / 1000, unit: "kg" };
+  if (grams >= 1000)
+    return { value: parseFloat((grams / 1000).toFixed(3)), unit: "kg" };
+  return { value: grams, unit: "g" };
+}
 
 export default function ProductsTab({
   loading,
@@ -52,20 +82,18 @@ export default function ProductsTab({
   onReload: () => void;
 }) {
   const [productModalOpen, setProductModalOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<AdminProduct | null>(
-    null,
+  const [editingProduct, setEditingProduct] = useState(
+    null as AdminProduct | null,
   );
-  const [productForm] = Form.useForm<ProductForm>();
+  const [productForm] = Form.useForm();
 
   const [groupByCategory, setGroupByCategory] = useState(true);
 
-  // ✅ NEW: allow choosing image BEFORE saving (create flow)
-  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
-  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(
-    null,
+  const [pendingImageFile, setPendingImageFile] = useState(null as File | null);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState(
+    null as string | null,
   );
 
-  // cleanup preview blob URLs
   useEffect(() => {
     return () => {
       if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
@@ -99,6 +127,8 @@ export default function ProductsTab({
       name: "",
       description: "",
       cutType: "",
+      avgWeightValue: null,
+      avgWeightUnit: "g",
     });
     resetPendingImage();
     setProductModalOpen(true);
@@ -107,6 +137,7 @@ export default function ProductsTab({
   function openEditProduct(p: AdminProduct) {
     setEditingProduct(p);
     productForm.resetFields();
+    const { value, unit } = fromGrams((p as any).avgWeightG ?? null);
     productForm.setFieldsValue({
       name: p.name,
       description: p.description || "",
@@ -117,6 +148,8 @@ export default function ProductsTab({
       isActive: p.isActive,
       categoryId: p.categoryId ?? null,
       cutType: (p as any).cutType || "",
+      avgWeightValue: value,
+      avgWeightUnit: unit,
     });
     resetPendingImage();
     setProductModalOpen(true);
@@ -159,7 +192,6 @@ export default function ProductsTab({
   async function uploadImage(productId: string, file: File) {
     const fd = new FormData();
     fd.append("image", file);
-
     try {
       await api.post(`/api/admin/products/${productId}/image`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -182,25 +214,31 @@ export default function ProductsTab({
   }
 
   async function saveProduct() {
-    const values = await productForm.validateFields();
+    const values: ProductForm = await productForm.validateFields();
+
+    const avgWeightG = toGrams(
+      values.avgWeightValue ?? null,
+      values.avgWeightUnit ?? "g",
+    );
 
     const payload = {
-      ...values,
+      name: values.name,
+      description: values.description ?? "",
+      unit: values.unit,
+      retailPrice: values.retailPrice,
+      wholesalePrice: values.wholesalePrice,
+      stockQty: values.stockQty,
+      isActive: values.isActive ?? true,
       categoryId: values.categoryId ?? null,
       cutType: (values.cutType || "").trim(),
-      description: values.description ?? "",
+      avgWeightG,
     };
 
     try {
       if (editingProduct) {
-        // ✅ Update fields
         await api.put(`/api/admin/products/${editingProduct.id}`, payload);
-
-        // ✅ If they picked a new image in the modal, upload it on save
-        if (pendingImageFile) {
+        if (pendingImageFile)
           await uploadImage(editingProduct.id, pendingImageFile);
-        }
-
         message.success("Product updated");
         setProductModalOpen(false);
         resetPendingImage();
@@ -208,7 +246,7 @@ export default function ProductsTab({
         return;
       }
 
-      // ✅ Create: send multipart so image can be chosen BEFORE saving
+      // Create — multipart
       const fd = new FormData();
       fd.append("name", payload.name);
       fd.append("description", payload.description || "");
@@ -216,10 +254,15 @@ export default function ProductsTab({
       fd.append("retailPrice", String(payload.retailPrice));
       fd.append("wholesalePrice", String(payload.wholesalePrice));
       fd.append("stockQty", String(payload.stockQty));
-      fd.append("isActive", String(payload.isActive ?? true));
+      fd.append("isActive", String(payload.isActive));
       fd.append("categoryId", payload.categoryId ?? "");
       fd.append("cutType", payload.cutType || "");
-
+      fd.append(
+        "avgWeightG",
+        avgWeightG !== null && avgWeightG !== undefined
+          ? String(avgWeightG)
+          : "",
+      );
       if (pendingImageFile) fd.append("image", pendingImageFile);
 
       await api.post(`/api/admin/products`, fd, {
@@ -237,14 +280,12 @@ export default function ProductsTab({
 
   const grouped = useMemo(() => {
     const map = new Map<string, AdminProduct[]>();
-
     const keyOf = (p: AdminProduct) => p.category?.name || "Unassigned";
     for (const p of products) {
       const k = keyOf(p);
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(p);
     }
-
     for (const [k, list] of map.entries()) {
       map.set(
         k,
@@ -253,7 +294,6 @@ export default function ProductsTab({
           .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0)),
       );
     }
-
     return [...map.entries()];
   }, [products]);
 
@@ -276,9 +316,7 @@ export default function ProductsTab({
             return false;
           },
         };
-
         const imgSrc = p.imageUrl ? `${API_BASE}${p.imageUrl}` : null;
-
         return (
           <div style={{ display: "grid", gap: 6 }}>
             <div
@@ -303,14 +341,12 @@ export default function ProductsTab({
                 />
               ) : null}
             </div>
-
             <Space size={6} wrap>
               <Upload {...uploadProps}>
                 <Button size="small" icon={<UploadOutlined />}>
                   Upload
                 </Button>
               </Upload>
-
               {p.imageUrl ? (
                 <Button size="small" danger onClick={() => removeImage(p.id)}>
                   Remove
@@ -333,6 +369,14 @@ export default function ProductsTab({
       },
     },
     { title: "Unit", dataIndex: "unit", key: "unit", width: 90 },
+    {
+      title: "Avg Weight",
+      dataIndex: "avgWeightG",
+      key: "avgWeightG",
+      width: 120,
+      render: (v: any) =>
+        fmtGrams(v === null || v === undefined ? null : Number(v)),
+    },
     {
       title: "Retail",
       dataIndex: "retailPrice",
@@ -409,7 +453,6 @@ export default function ProductsTab({
     },
   ] as any[];
 
-  // ✅ Modal image picker (choose before save)
   const modalUploadProps: UploadProps = {
     showUploadList: false,
     beforeUpload: (file) => {
@@ -425,11 +468,9 @@ export default function ProductsTab({
         message.error("Image must be < 5MB");
         return false;
       }
-
       setPendingImageFile(file as any);
-      const url = URL.createObjectURL(file as any);
-      setPendingPreviewUrl(url);
-      return false; // prevent auto upload
+      setPendingPreviewUrl(URL.createObjectURL(file as any));
+      return false;
     },
   };
 
@@ -485,7 +526,6 @@ export default function ProductsTab({
         okText="Save"
       >
         <Form layout="vertical" form={productForm}>
-          {/* ✅ Image picker lives INSIDE the modal and does not require save-first */}
           <Form.Item label="Image (optional)">
             <div style={{ display: "grid", gap: 10 }}>
               <div
@@ -524,25 +564,21 @@ export default function ProductsTab({
                   <Text type="secondary">Choose an image (optional)</Text>
                 )}
               </div>
-
               <Space wrap>
                 <Upload {...modalUploadProps}>
                   <Button icon={<UploadOutlined />}>Choose image</Button>
                 </Upload>
-
                 {pendingImageFile || pendingPreviewUrl ? (
                   <Button danger onClick={resetPendingImage}>
                     Clear
                   </Button>
                 ) : null}
-
                 {editingProduct?.id && editingProduct?.imageUrl ? (
                   <Button danger onClick={() => removeImage(editingProduct.id)}>
                     Remove current image
                   </Button>
                 ) : null}
               </Space>
-
               <Text type="secondary" style={{ fontSize: 12 }}>
                 Tip: For a new product, choose an image now—then click Save
                 once.
@@ -565,10 +601,37 @@ export default function ProductsTab({
           <Form.Item name="unit" label="Unit" rules={[{ required: true }]}>
             <Select
               options={[
-                { value: "kg", label: "kg" },
-                { value: "pack", label: "pack" },
+                { value: "kg", label: "kg — sold by kilogram" },
+                { value: "pack", label: "pack — sold by pack" },
+                { value: "g", label: "g — sold by gram" },
               ]}
             />
+          </Form.Item>
+
+          {/* Average weight — value + unit selector side by side */}
+          <Form.Item
+            label="Average weight (optional)"
+            extra="Shown to customers on the shop."
+          >
+            <Space.Compact style={{ width: "100%" }}>
+              <Form.Item name="avgWeightValue" noStyle>
+                <InputNumber
+                  min={0}
+                  step={0.1}
+                  placeholder="e.g. 500"
+                  style={{ width: "100%" }}
+                />
+              </Form.Item>
+              <Form.Item name="avgWeightUnit" noStyle initialValue="g">
+                <Select
+                  style={{ width: 80 }}
+                  options={[
+                    { value: "g", label: "g" },
+                    { value: "kg", label: "kg" },
+                  ]}
+                />
+              </Form.Item>
+            </Space.Compact>
           </Form.Item>
 
           <Form.Item
@@ -607,7 +670,6 @@ export default function ProductsTab({
             />
           </Form.Item>
 
-          {/* ✅ Use Switch instead of raw checkbox */}
           <Form.Item name="isActive" label="Active" valuePropName="checked">
             <Switch />
           </Form.Item>

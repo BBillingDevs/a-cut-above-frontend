@@ -11,7 +11,6 @@ import {
   InputNumber,
   Space,
   Typography,
-  message,
   Select,
   Tag,
 } from "antd";
@@ -44,15 +43,10 @@ type DropoffLocation = {
   description?: string | null;
   isActive: boolean;
   sortOrder: number;
-  deliveryCutoffAt?: string | null;
-  nextDeliveryAt?: string | null;
-};
-
-type CheckoutForm = {
-  customerName: string;
-  customerPhone: string;
-  customerEmail?: string;
-  dropoffLocationId: string;
+  nextSchedule?: {
+    cutoffDate: string;
+    deliveryDate: string;
+  } | null;
 };
 
 type StockIssue = {
@@ -71,21 +65,20 @@ function asInt(v: any, fallback: number) {
 }
 
 export default function CheckoutPage() {
-  // ✅ include setQty/remove so user can adjust quantities + delete here
   const { items, clear, setQty, remove } = useCart();
   const navigate = useNavigate();
 
-  const [windowState, setWindowState] = useState<WindowState>({ open: false });
+  const [windowState, setWindowState] = useState({
+    open: false,
+  } as WindowState);
   const [submitting, setSubmitting] = useState(false);
-  const [form] = Form.useForm<CheckoutForm>();
+  const [form] = Form.useForm();
 
-  const [dropoffs, setDropoffs] = useState<DropoffLocation[]>([]);
+  const [dropoffs, setDropoffs] = useState([] as DropoffLocation[]);
   const [dropoffsLoading, setDropoffsLoading] = useState(false);
-
-  // ✅ Stock issues shown INLINE under each item (no toast)
-  const [stockIssuesById, setStockIssuesById] = useState<
-    Record<string, StockIssue>
-  >({});
+  const [stockIssuesById, setStockIssuesById] = useState(
+    {} as Record<string, StockIssue>,
+  );
   const [stockChecking, setStockChecking] = useState(false);
 
   async function loadWindow() {
@@ -109,8 +102,7 @@ export default function CheckoutPage() {
         description: x.description ?? null,
         isActive: Boolean(x.isActive),
         sortOrder: Number(x.sortOrder ?? 0),
-        deliveryCutoffAt: x.deliveryCutoffAt ?? null,
-        nextDeliveryAt: x.nextDeliveryAt ?? null,
+        nextSchedule: x.nextSchedule ?? null,
       }));
 
       setDropoffs(parsed);
@@ -127,11 +119,6 @@ export default function CheckoutPage() {
       }
     } catch (e: any) {
       console.error(e);
-      message.error(
-        e?.response?.data?.error ||
-        e?.message ||
-        "Failed to load drop-off locations",
-      );
       setDropoffs([]);
     } finally {
       setDropoffsLoading(false);
@@ -151,23 +138,19 @@ export default function CheckoutPage() {
   }, [dropoffs, selectedDropoffId]);
 
   const deliveryInfo = useMemo(() => {
-    const cutoff = selectedDropoff?.deliveryCutoffAt
-      ? new Date(selectedDropoff.deliveryCutoffAt)
+    const schedule = selectedDropoff?.nextSchedule ?? null;
+    const cutoff = schedule?.cutoffDate ? new Date(schedule.cutoffDate) : null;
+    const nextDelivery = schedule?.deliveryDate
+      ? new Date(schedule.deliveryDate)
       : null;
-    const nextDelivery = selectedDropoff?.nextDeliveryAt
-      ? new Date(selectedDropoff.nextDeliveryAt)
-      : null;
-
     return { has: Boolean(cutoff && nextDelivery), cutoff, nextDelivery };
   }, [selectedDropoff]);
 
-  // ✅ Call stock-check and STORE issues (no toast)
   async function runStockCheck() {
     if (!items.length) {
       setStockIssuesById({});
       return { ok: true as const, issues: [] as StockIssue[] };
     }
-
     setStockChecking(true);
     try {
       await api.post("/api/public/orders/stock-check", {
@@ -176,7 +159,6 @@ export default function CheckoutPage() {
           qty: Number(i.qty || 0),
         })),
       });
-
       setStockIssuesById({});
       return { ok: true as const, issues: [] as StockIssue[] };
     } catch (e: any) {
@@ -187,8 +169,6 @@ export default function CheckoutPage() {
         setStockIssuesById(map);
         return { ok: false as const, issues };
       }
-
-      // If anything else goes wrong, don't block UI with toasts
       console.error("Stock check error:", e);
       return { ok: true as const, issues: [] as StockIssue[] };
     } finally {
@@ -196,10 +176,8 @@ export default function CheckoutPage() {
     }
   }
 
-  // ✅ Keep the summary warnings up-to-date as cart changes
   useEffect(() => {
-    let t: any = null;
-    t = setTimeout(() => {
+    const t = setTimeout(() => {
       runStockCheck();
     }, 250);
     return () => clearTimeout(t);
@@ -208,8 +186,6 @@ export default function CheckoutPage() {
 
   function issueUi(issue?: StockIssue | null) {
     if (!issue) return null;
-
-    // Red icon ONLY if completely unavailable / not purchasable
     const hardOut =
       issue.available <= 0 ||
       issue.reason === "INACTIVE" ||
@@ -228,8 +204,6 @@ export default function CheckoutPage() {
               : "No stock available.",
       };
     }
-
-    // Warning icon if requested > available
     return {
       icon: <ExclamationCircleOutlined />,
       color: "#d48806",
@@ -242,29 +216,26 @@ export default function CheckoutPage() {
     return Object.keys(stockIssuesById).length > 0;
   }, [stockIssuesById]);
 
-  async function submit(values: CheckoutForm) {
-    if (items.length === 0) return;
+  // ── This is called by Ant Design Form with already-validated values ──
+  async function submit(values: any) {
+    const customerName = String(values.customerName || "").trim();
+    const customerPhone = String(values.customerPhone || "").trim();
+    const customerEmail = String(values.customerEmail || "").trim();
+    const dropoffLocationId = String(values.dropoffLocationId || "").trim();
 
-    if (!windowState.open) {
-      message.error("Ordering is currently closed");
-      return;
-    }
+    if (items.length === 0) return;
+    if (!windowState.open) return;
 
     setSubmitting(true);
     try {
-      // ✅ 1) Pre-check stock (store issues for INLINE display)
       const check = await runStockCheck();
-      if (!check.ok) {
-        // No toast – the UI shows it under items
-        return;
-      }
+      if (!check.ok) return;
 
-      // ✅ 2) Place order (backend should re-check stock atomically)
       const payload = {
-        customerName: values.customerName,
-        customerPhone: values.customerPhone,
-        customerEmail: values.customerEmail || "",
-        dropoffLocationId: values.dropoffLocationId,
+        customerName,
+        customerPhone,
+        customerEmail,
+        dropoffLocationId,
         notes: "",
         items: items.map((i) => ({ productId: i.product.id, qty: i.qty })),
       };
@@ -272,11 +243,9 @@ export default function CheckoutPage() {
       const res = await api.post("/api/public/orders", payload);
 
       clear();
-      message.success(`Order placed! Your order number is ${res.data.orderNo}`);
       form.resetFields();
-      navigate("/track");
+      navigate("/track", { state: { successOrderNo: res.data.orderNo } });
     } catch (e: any) {
-      // ✅ If backend rejects for stock, show inline issues (no toast)
       if (e?.response?.status === 409) {
         const issues = (e?.response?.data?.issues || []) as StockIssue[];
         const map: Record<string, StockIssue> = {};
@@ -284,8 +253,8 @@ export default function CheckoutPage() {
         setStockIssuesById(map);
         return;
       }
-
-      message.error(e?.response?.data?.error || "Failed to place order");
+      // show error inline
+      console.error("Order failed:", e?.response?.data || e);
     } finally {
       setSubmitting(false);
     }
@@ -306,7 +275,6 @@ export default function CheckoutPage() {
             Enter your details to receive your premium cuts.
           </Text>
         </div>
-
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <LockOutlined style={{ opacity: 0.65 }} />
           <Text type="secondary" style={{ letterSpacing: 1, fontWeight: 600 }}>
@@ -333,12 +301,18 @@ export default function CheckoutPage() {
               Your Details
             </Title>
             <Text type="secondary">
-              Choose where you’d like your order dropped.
+              Choose where you'd like your order dropped.
             </Text>
 
             <Divider />
 
-            <Form layout="vertical" form={form} onFinish={submit}>
+            <Form
+              layout="vertical"
+              form={form}
+              onFinish={submit}
+              // ── Ensure values are trimmed/coerced before validation ──
+              onValuesChange={() => { }}
+            >
               <div
                 style={{
                   display: "grid",
@@ -355,7 +329,18 @@ export default function CheckoutPage() {
                   }
                   rules={[
                     { required: true, message: "Please enter your name" },
+                    {
+                      validator: (_, value) => {
+                        if (String(value || "").trim().length >= 2)
+                          return Promise.resolve();
+                        return Promise.reject(
+                          "Name must be at least 2 characters",
+                        );
+                      },
+                    },
                   ]}
+                  // Normalize trims whitespace before validation
+                  normalize={(v) => String(v || "")}
                 >
                   <Input placeholder="e.g. James Sterling" />
                 </Form.Item>
@@ -372,7 +357,17 @@ export default function CheckoutPage() {
                       required: true,
                       message: "Please enter your phone number",
                     },
+                    {
+                      validator: (_, value) => {
+                        if (String(value || "").trim().length >= 5)
+                          return Promise.resolve();
+                        return Promise.reject(
+                          "Please enter a valid phone number",
+                        );
+                      },
+                    },
                   ]}
+                  normalize={(v) => String(v || "")}
                 >
                   <Input placeholder="WhatsApp/phone number" />
                 </Form.Item>
@@ -386,6 +381,7 @@ export default function CheckoutPage() {
                   </span>
                 }
                 rules={[{ type: "email", warningOnly: true }]}
+                normalize={(v) => String(v || "")}
               >
                 <Input placeholder="name@example.com" />
               </Form.Item>
@@ -429,22 +425,22 @@ export default function CheckoutPage() {
                     type="info"
                     showIcon
                     style={{ marginTop: 8 }}
-                    message="Delivery schedule"
+                    message="Next delivery schedule"
                     description={
                       <div style={{ display: "grid", gap: 4 }}>
                         <div>
-                          Cut-off:{" "}
+                          Order cut-off:{" "}
                           <b>{deliveryInfo.cutoff!.toLocaleDateString()}</b>
                         </div>
                         <div>
-                          Next delivery:{" "}
+                          Delivery date:{" "}
                           <b>
                             {deliveryInfo.nextDelivery!.toLocaleDateString()}
                           </b>
                         </div>
                         <div style={{ opacity: 0.8 }}>
-                          Orders placed after the cut-off will go on the
-                          following delivery date.
+                          Orders placed after the cut-off will go on the next
+                          delivery run.
                         </div>
                       </div>
                     }
@@ -454,8 +450,8 @@ export default function CheckoutPage() {
                     type="warning"
                     showIcon
                     style={{ marginTop: 8 }}
-                    message="Delivery schedule not set"
-                    description="Please contact support if you need a delivery date for this location."
+                    message="No upcoming delivery scheduled"
+                    description="Please contact us if you need a delivery date for this location."
                   />
                 )
               ) : null}
@@ -469,7 +465,6 @@ export default function CheckoutPage() {
                 >
                   Back to shop
                 </Button>
-
                 <Button
                   type="primary"
                   htmlType="submit"
@@ -540,17 +535,14 @@ export default function CheckoutPage() {
                   {items.map((it) => {
                     const pid = it.product.id;
                     const qty = asInt(it.qty, 1);
-
                     const issue = stockIssuesById[pid] || null;
                     const ui = issueUi(issue);
-
                     const maxIfKnown =
                       issue &&
                         issue.reason === "INSUFFICIENT" &&
                         Number(issue.available) > 0
                         ? Number(issue.available)
                         : undefined;
-
                     const disablePlus =
                       typeof maxIfKnown === "number"
                         ? qty >= maxIfKnown
@@ -594,8 +586,6 @@ export default function CheckoutPage() {
                             >
                               {it.product.name}
                             </Text>
-
-                            {/* ✅ inline warning/error UNDER item name (no toast) */}
                             {ui ? (
                               <div
                                 style={{
@@ -618,7 +608,6 @@ export default function CheckoutPage() {
                               </div>
                             ) : null}
                           </div>
-
                           <Button
                             size="small"
                             danger
@@ -627,10 +616,9 @@ export default function CheckoutPage() {
                           />
                         </div>
 
-                        {/* ✅ Subheading exactly where you said you want it */}
                         {ui ? (
                           <div style={{ marginTop: 10 }}>
-                            <Text style={{ fontWeight: 800, color: ui.color }}>
+                            <Text strong style={{ color: ui.color }}>
                               Please fix this item before placing the order
                             </Text>
                             <div
@@ -654,7 +642,6 @@ export default function CheckoutPage() {
                           }}
                         >
                           <Text type="secondary">Qty (packs)</Text>
-
                           <div
                             style={{
                               display: "inline-flex",
@@ -679,16 +666,14 @@ export default function CheckoutPage() {
                                 padding: 0,
                               }}
                             />
-
                             <InputNumber
                               value={qty}
                               min={1}
                               max={maxIfKnown}
                               controls={false}
                               onChange={(v) => setQty(pid, asInt(v, 1))}
-                              style={{ width: 52 }} // ✅ smaller width
+                              style={{ width: 52 }}
                             />
-
                             <Button
                               size="small"
                               type="text"

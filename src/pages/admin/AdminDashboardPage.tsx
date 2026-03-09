@@ -9,7 +9,6 @@ import OrdersTab from "../../components/OrdersTab";
 import ProductsTab from "../../components/ProductsTab";
 import CategoriesTab from "../../components/CategoriesTab";
 import WindowsTab from "../../components/WindowsTab";
-import ReportsTab from "../../components/ReportsTab";
 import DropoffLocationsTab from "../../components/DropoffLocationsTab";
 import DashboardTab from "../../components/DashboardTab";
 
@@ -239,17 +238,6 @@ export default function AdminDashboardPage() {
                 loading={loading}
                 windows={windows}
                 onReload={loadAll}
-              />
-            ),
-          },
-          {
-            key: "reports",
-            label: "Reports",
-            children: (
-              <ReportsTab
-                report={report}
-                windowOptions={windowOptions}
-                onLoadReport={loadReport}
               />
             ),
           },

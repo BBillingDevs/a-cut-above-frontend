@@ -1,6 +1,15 @@
 // src/pages/public/TrackOrderPage.tsx
 import React, { useMemo, useState } from "react";
-import { Button, Card, Form, Input, Table, Typography, message } from "antd";
+import {
+  Button,
+  Card,
+  Form,
+  Input,
+  Table,
+  Typography,
+  message,
+  Alert,
+} from "antd";
 import { api } from "../../api/client";
 import "../../styles/app.scss";
 import type { TrackedOrder } from "../../types";
@@ -29,7 +38,7 @@ function statusToStep(status: string) {
   if (s === "DELIVERED") return 4;
   if (s === "SHIPPING") return 3;
   if (s === "PACKED") return 2;
-  return 1; // PROCESSING
+  return 1;
 }
 
 function money(n: any) {
@@ -40,8 +49,15 @@ function money(n: any) {
 
 export default function TrackOrderPage() {
   const [loading, setLoading] = useState(false);
-  const [order, setOrder] = useState<TrackedOrder | null>(null);
-  const [form] = Form.useForm<TrackForm>();
+  const [order, setOrder] = useState(null as TrackedOrder | null);
+  const [form] = Form.useForm();
+
+  // Read success order number passed via navigation state (from CheckoutPage)
+  const locationState = (window.history.state?.usr ?? {}) as Record<
+    string,
+    any
+  >;
+  const successOrderNo = locationState?.successOrderNo as string | undefined;
 
   async function track(values: TrackForm) {
     setLoading(true);
@@ -71,6 +87,29 @@ export default function TrackOrderPage() {
         </div>
       </div>
 
+      {/* ── Success banner shown after checkout ── */}
+      {successOrderNo ? (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 16, fontSize: 15 }}
+          message={
+            <span>
+              Order placed successfully!{" "}
+              <b style={{ fontSize: 17 }}>{successOrderNo}</b>
+            </span>
+          }
+          description={
+            <div style={{ marginTop: 4 }}>
+              <Text strong style={{ color: "#237804" }}>
+                Please write down your order number — you will need it to track
+                your order below.
+              </Text>
+            </div>
+          }
+        />
+      ) : null}
+
       <Card className="aca-trackCard">
         <Form layout="inline" form={form} onFinish={track} style={{ gap: 12 }}>
           <Form.Item name="orderNo" rules={[{ required: true }]}>
@@ -92,18 +131,13 @@ export default function TrackOrderPage() {
       {order && (
         <div style={{ marginTop: 18 }}>
           <Card className="aca-trackCard">
-            {/* ✅ NO “Status: Delivered” bar */}
-
-            {/* ✅ Lines between circles */}
             <div
               className="aca-steps aca-steps--lines"
               style={{ marginTop: 8 }}
             >
               <div className="aca-steps__row">
                 <div
-                  className={`aca-step ${step >= 1 ? "is-done" : ""} ${
-                    step === 1 ? "is-active" : ""
-                  }`}
+                  className={`aca-step ${step >= 1 ? "is-done" : ""} ${step === 1 ? "is-active" : ""}`}
                 >
                   <div className="aca-step__dot">
                     <FileTextOutlined />
@@ -117,9 +151,7 @@ export default function TrackOrderPage() {
                 />
 
                 <div
-                  className={`aca-step ${step >= 2 ? "is-done" : ""} ${
-                    step === 2 ? "is-active" : ""
-                  }`}
+                  className={`aca-step ${step >= 2 ? "is-done" : ""} ${step === 2 ? "is-active" : ""}`}
                 >
                   <div className="aca-step__dot">
                     <InboxOutlined />
@@ -133,9 +165,7 @@ export default function TrackOrderPage() {
                 />
 
                 <div
-                  className={`aca-step ${step >= 3 ? "is-done" : ""} ${
-                    step === 3 ? "is-active" : ""
-                  }`}
+                  className={`aca-step ${step >= 3 ? "is-done" : ""} ${step === 3 ? "is-active" : ""}`}
                 >
                   <div className="aca-step__dot">
                     <CarOutlined />
@@ -149,9 +179,7 @@ export default function TrackOrderPage() {
                 />
 
                 <div
-                  className={`aca-step ${step >= 4 ? "is-done" : ""} ${
-                    step === 4 ? "is-active" : ""
-                  }`}
+                  className={`aca-step ${step >= 4 ? "is-done" : ""} ${step === 4 ? "is-active" : ""}`}
                 >
                   <div className="aca-step__dot">
                     <HomeOutlined />
@@ -161,7 +189,6 @@ export default function TrackOrderPage() {
               </div>
             </div>
 
-            {/* ✅ One row, NO pricing */}
             <div className="aca-orderMeta">
               <div>
                 <Text type="secondary">Order No</Text>
