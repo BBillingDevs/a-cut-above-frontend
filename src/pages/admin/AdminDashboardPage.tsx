@@ -30,12 +30,13 @@ export type AdminProduct = {
   wholesalePrice: string | number;
   stockQty: number;
   isActive: boolean;
-
   imageUrl?: string | null;
   sortOrder?: number | null;
   categoryId?: string | null;
-
+  cutType?: string | null;
+  avgWeightG?: number | null;
   category?: AdminCategory | null;
+  _count?: { orderItems: number };
 };
 
 export type AdminOrderItem = {

@@ -42,12 +42,17 @@ type ProductForm = {
   avgWeightUnit: "g" | "kg";
 };
 
+function resolveImageUrl(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `${API_BASE}${url}`;
+}
+
 function fmtGrams(g: number | null | undefined) {
   if (g === null || g === undefined) return "—";
   return g >= 1000 ? `${(g / 1000).toFixed(2)} kg` : `${g} g`;
 }
 
-/** Convert display value + unit → integer grams for storage */
 function toGrams(
   value: number | null | undefined,
   unit: "g" | "kg",
@@ -57,7 +62,6 @@ function toGrams(
   return unit === "kg" ? Math.round(value * 1000) : Math.round(value);
 }
 
-/** Convert stored grams → { value, unit } for display in the form */
 function fromGrams(grams: number | null | undefined): {
   value: number | null;
   unit: "g" | "kg";
@@ -86,9 +90,8 @@ export default function ProductsTab({
     null as AdminProduct | null,
   );
   const [productForm] = Form.useForm();
-
   const [groupByCategory, setGroupByCategory] = useState(true);
-
+  const [showArchived, setShowArchived] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState(null as File | null);
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState(
     null as string | null,
@@ -114,6 +117,17 @@ export default function ProductsTab({
     [categories],
   );
 
+  // Split active vs archived
+  const visibleProducts = useMemo(
+    () => products.filter((p) => (showArchived ? !p.isActive : p.isActive)),
+    [products, showArchived],
+  );
+
+  const archivedCount = useMemo(
+    () => products.filter((p) => !p.isActive).length,
+    [products],
+  );
+
   function openCreateProduct() {
     setEditingProduct(null);
     productForm.resetFields();
@@ -137,7 +151,7 @@ export default function ProductsTab({
   function openEditProduct(p: AdminProduct) {
     setEditingProduct(p);
     productForm.resetFields();
-    const { value, unit } = fromGrams((p as any).avgWeightG ?? null);
+    const { value, unit } = fromGrams(p.avgWeightG ?? null);
     productForm.setFieldsValue({
       name: p.name,
       description: p.description || "",
@@ -147,7 +161,7 @@ export default function ProductsTab({
       stockQty: p.stockQty,
       isActive: p.isActive,
       categoryId: p.categoryId ?? null,
-      cutType: (p as any).cutType || "",
+      cutType: p.cutType || "",
       avgWeightValue: value,
       avgWeightUnit: unit,
     });
@@ -155,10 +169,44 @@ export default function ProductsTab({
     setProductModalOpen(true);
   }
 
-  async function deleteProduct(id: string) {
-    await api.delete(`/api/admin/products/${id}`);
-    message.success("Product archived");
-    onReload();
+  async function deleteOrArchiveProduct(p: AdminProduct) {
+    try {
+      const res = await api.delete(`/api/admin/products/${p.id}`);
+      const action = res.data?.action;
+      if (action === "archived") {
+        message.warning({
+          content:
+            "This product is linked to previous orders and cannot be deleted. It has been archived instead.",
+          duration: 5,
+        });
+      } else {
+        message.success("Product deleted");
+      }
+      onReload();
+    } catch (e: any) {
+      message.error(e?.response?.data?.error || "Failed");
+    }
+  }
+
+  async function unarchiveProduct(p: AdminProduct) {
+    try {
+      await api.put(`/api/admin/products/${p.id}`, {
+        name: p.name,
+        description: p.description ?? "",
+        unit: p.unit,
+        retailPrice: Number(p.retailPrice),
+        wholesalePrice: Number(p.wholesalePrice),
+        stockQty: p.stockQty,
+        isActive: true,
+        categoryId: p.categoryId ?? null,
+        cutType: p.cutType ?? "",
+        avgWeightG: p.avgWeightG ?? null,
+      });
+      message.success("Product restored to shop");
+      onReload();
+    } catch (e: any) {
+      message.error(e?.response?.data?.error || "Failed to unarchive");
+    }
   }
 
   async function moveProduct(
@@ -246,7 +294,6 @@ export default function ProductsTab({
         return;
       }
 
-      // Create — multipart
       const fd = new FormData();
       fd.append("name", payload.name);
       fd.append("description", payload.description || "");
@@ -281,7 +328,7 @@ export default function ProductsTab({
   const grouped = useMemo(() => {
     const map = new Map<string, AdminProduct[]>();
     const keyOf = (p: AdminProduct) => p.category?.name || "Unassigned";
-    for (const p of products) {
+    for (const p of visibleProducts) {
       const k = keyOf(p);
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(p);
@@ -295,7 +342,7 @@ export default function ProductsTab({
       );
     }
     return [...map.entries()];
-  }, [products]);
+  }, [visibleProducts]);
 
   const baseColumns = [
     {
@@ -316,7 +363,7 @@ export default function ProductsTab({
             return false;
           },
         };
-        const imgSrc = p.imageUrl ? `${API_BASE}${p.imageUrl}` : null;
+        const imgSrc = resolveImageUrl(p.imageUrl);
         return (
           <div style={{ display: "grid", gap: 6 }}>
             <div
@@ -407,49 +454,67 @@ export default function ProductsTab({
         ),
     },
     {
-      title: "Active",
-      dataIndex: "isActive",
-      key: "isActive",
-      width: 90,
-      render: (v: boolean) =>
-        v ? <Tag color="green">Yes</Tag> : <Tag color="red">No</Tag>,
-    },
-    {
       title: "Order",
       key: "order",
       width: 140,
-      render: (_: any, p: AdminProduct) => (
-        <Space size={6}>
-          <Button
-            size="small"
-            onClick={() => moveProduct(p.id, "up", p.categoryId ?? null)}
-          >
-            ↑
-          </Button>
-          <Button
-            size="small"
-            onClick={() => moveProduct(p.id, "down", p.categoryId ?? null)}
-          >
-            ↓
-          </Button>
-        </Space>
-      ),
+      render: (_: any, p: AdminProduct) =>
+        showArchived ? null : (
+          <Space size={6}>
+            <Button
+              size="small"
+              onClick={() => moveProduct(p.id, "up", p.categoryId ?? null)}
+            >
+              ↑
+            </Button>
+            <Button
+              size="small"
+              onClick={() => moveProduct(p.id, "down", p.categoryId ?? null)}
+            >
+              ↓
+            </Button>
+          </Space>
+        ),
     },
     {
       title: "",
       key: "actions",
-      width: 180,
-      render: (_: any, p: AdminProduct) => (
-        <Space>
-          <Button onClick={() => openEditProduct(p)}>Edit</Button>
-          <Popconfirm
-            title="Archive this product?"
-            onConfirm={() => deleteProduct(p.id)}
-          >
-            <Button danger>Archive</Button>
-          </Popconfirm>
-        </Space>
-      ),
+      width: 220,
+      render: (_: any, p: AdminProduct) => {
+        if (showArchived) {
+          return (
+            <Space>
+              <Button onClick={() => openEditProduct(p)}>Edit</Button>
+              <Popconfirm
+                title="Restore this product to the shop?"
+                okText="Restore"
+                onConfirm={() => unarchiveProduct(p)}
+              >
+                <Button type="primary">Unarchive</Button>
+              </Popconfirm>
+            </Space>
+          );
+        }
+
+        const hasOrders = Number(p._count?.orderItems ?? 0) > 0;
+        const confirmTitle = hasOrders
+          ? "This product has previous orders. It will be archived (hidden from shop)."
+          : "Permanently delete this product? This cannot be undone.";
+        const btnLabel = hasOrders ? "Archive" : "Delete";
+
+        return (
+          <Space>
+            <Button onClick={() => openEditProduct(p)}>Edit</Button>
+            <Popconfirm
+              title={confirmTitle}
+              okText={btnLabel}
+              okButtonProps={{ danger: true }}
+              onConfirm={() => deleteOrArchiveProduct(p)}
+            >
+              <Button danger>{btnLabel}</Button>
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ] as any[];
 
@@ -482,9 +547,16 @@ export default function ProductsTab({
             <Text type="secondary">Group by category</Text>
             <Switch checked={groupByCategory} onChange={setGroupByCategory} />
           </Space>
-          <Button type="primary" onClick={openCreateProduct}>
-            New Product
+          <Button onClick={() => setShowArchived((v) => !v)}>
+            {showArchived
+              ? "Show Active"
+              : `Show Archived${archivedCount > 0 ? ` (${archivedCount})` : ""}`}
           </Button>
+          {!showArchived && (
+            <Button type="primary" onClick={openCreateProduct}>
+              New Product
+            </Button>
+          )}
         </Space>
       }
     >
@@ -492,7 +564,7 @@ export default function ProductsTab({
         <Table
           loading={loading}
           rowKey={(r) => r.id}
-          dataSource={products
+          dataSource={visibleProducts
             .slice()
             .sort(
               (a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
@@ -501,17 +573,23 @@ export default function ProductsTab({
         />
       ) : (
         <div style={{ display: "grid", gap: 14 }}>
-          {grouped.map(([catName, list]) => (
-            <Card key={catName} size="small" title={catName}>
-              <Table
-                loading={loading}
-                rowKey={(r) => r.id}
-                dataSource={list}
-                columns={baseColumns}
-                pagination={false}
-              />
-            </Card>
-          ))}
+          {grouped.length === 0 ? (
+            <Text type="secondary" style={{ padding: 16 }}>
+              {showArchived ? "No archived products." : "No active products."}
+            </Text>
+          ) : (
+            grouped.map(([catName, list]) => (
+              <Card key={catName} size="small" title={catName}>
+                <Table
+                  loading={loading}
+                  rowKey={(r) => r.id}
+                  dataSource={list}
+                  columns={baseColumns}
+                  pagination={false}
+                />
+              </Card>
+            ))
+          )}
         </div>
       )}
 
@@ -552,7 +630,7 @@ export default function ProductsTab({
                   />
                 ) : editingProduct?.imageUrl ? (
                   <img
-                    src={`${API_BASE}${editingProduct.imageUrl}`}
+                    src={resolveImageUrl(editingProduct.imageUrl) ?? ""}
                     alt={editingProduct.name}
                     style={{
                       width: "100%",
@@ -608,7 +686,6 @@ export default function ProductsTab({
             />
           </Form.Item>
 
-          {/* Average weight — value + unit selector side by side */}
           <Form.Item
             label="Average weight (optional)"
             extra="Shown to customers on the shop."
