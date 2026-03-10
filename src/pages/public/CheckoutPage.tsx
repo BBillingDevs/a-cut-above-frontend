@@ -24,7 +24,7 @@ import {
   ExclamationCircleOutlined,
   CloseCircleOutlined,
 } from "@ant-design/icons";
-import { api, API_BASE, RAILWAY_BASE } from "../../api/client";
+import { api, RAILWAY_BASE } from "../../api/client";
 import { useCart } from "../../context/CartContext";
 
 const { Title, Text } = Typography;
@@ -62,6 +62,12 @@ function asInt(v: any, fallback: number) {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(1, Math.floor(n));
+}
+
+function resolveImageUrl(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("/uploads/")) return `${RAILWAY_BASE}${url}`;
+  return null;
 }
 
 export default function CheckoutPage() {
@@ -216,7 +222,6 @@ export default function CheckoutPage() {
     return Object.keys(stockIssuesById).length > 0;
   }, [stockIssuesById]);
 
-  // ── This is called by Ant Design Form with already-validated values ──
   async function submit(values: any) {
     const customerName = String(values.customerName || "").trim();
     const customerPhone = String(values.customerPhone || "").trim();
@@ -253,7 +258,6 @@ export default function CheckoutPage() {
         setStockIssuesById(map);
         return;
       }
-      // show error inline
       console.error("Order failed:", e?.response?.data || e);
     } finally {
       setSubmitting(false);
@@ -310,7 +314,6 @@ export default function CheckoutPage() {
               layout="vertical"
               form={form}
               onFinish={submit}
-              // ── Ensure values are trimmed/coerced before validation ──
               onValuesChange={() => {}}
             >
               <div
@@ -339,7 +342,6 @@ export default function CheckoutPage() {
                       },
                     },
                   ]}
-                  // Normalize trims whitespace before validation
                   normalize={(v) => String(v || "")}
                 >
                   <Input placeholder="e.g. James Sterling" />
@@ -547,6 +549,9 @@ export default function CheckoutPage() {
                       typeof maxIfKnown === "number"
                         ? qty >= maxIfKnown
                         : false;
+                    const imgSrc = resolveImageUrl(
+                      (it.product as any).imageUrl,
+                    );
 
                     return (
                       <div
@@ -574,41 +579,84 @@ export default function CheckoutPage() {
                             alignItems: "flex-start",
                           }}
                         >
-                          <div style={{ minWidth: 0 }}>
-                            <Text
-                              strong
+                          {/* Image + name */}
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 10,
+                              alignItems: "center",
+                              minWidth: 0,
+                              flex: 1,
+                            }}
+                          >
+                            <div
                               style={{
-                                display: "block",
+                                width: 44,
+                                height: 44,
+                                borderRadius: 10,
                                 overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                                fontSize: "18px",
+                                background: "var(--aca-card)",
+                                border: "1px solid var(--aca-border)",
+                                flexShrink: 0,
                               }}
                             >
-                              {it.product.name}
-                            </Text>
-                            {ui ? (
-                              <div
+                              {imgSrc ? (
+                                <img
+                                  src={imgSrc}
+                                  alt={it.product.name}
+                                  style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "cover",
+                                  }}
+                                  onError={(e) => {
+                                    (
+                                      e.currentTarget as HTMLImageElement
+                                    ).style.display = "none";
+                                  }}
+                                />
+                              ) : null}
+                            </div>
+
+                            <div style={{ minWidth: 0 }}>
+                              <Text
+                                strong
                                 style={{
-                                  marginTop: 4,
-                                  display: "flex",
-                                  gap: 8,
-                                  alignItems: "flex-start",
-                                  color: ui.color,
+                                  display: "block",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  fontSize: "16px",
                                 }}
                               >
-                                <span style={{ marginTop: 2 }}>{ui.icon}</span>
-                                <div style={{ lineHeight: 1.2 }}>
-                                  <div style={{ fontWeight: 800 }}>
-                                    {ui.title}
-                                  </div>
-                                  <div style={{ fontSize: 12, opacity: 0.9 }}>
-                                    {ui.subtitle}
+                                {it.product.name}
+                              </Text>
+                              {ui ? (
+                                <div
+                                  style={{
+                                    marginTop: 4,
+                                    display: "flex",
+                                    gap: 8,
+                                    alignItems: "flex-start",
+                                    color: ui.color,
+                                  }}
+                                >
+                                  <span style={{ marginTop: 2 }}>
+                                    {ui.icon}
+                                  </span>
+                                  <div style={{ lineHeight: 1.2 }}>
+                                    <div style={{ fontWeight: 800 }}>
+                                      {ui.title}
+                                    </div>
+                                    <div style={{ fontSize: 12, opacity: 0.9 }}>
+                                      {ui.subtitle}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            ) : null}
+                              ) : null}
+                            </div>
                           </div>
+
                           <Button
                             size="small"
                             danger
