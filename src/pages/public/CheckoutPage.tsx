@@ -24,7 +24,7 @@ import {
   ExclamationCircleOutlined,
   CloseCircleOutlined,
 } from "@ant-design/icons";
-import { api } from "../../api/client";
+import { api, API_BASE, RAILWAY_BASE } from "../../api/client";
 import { useCart } from "../../context/CartContext";
 
 const { Title, Text } = Typography;
@@ -311,7 +311,7 @@ export default function CheckoutPage() {
               form={form}
               onFinish={submit}
               // ── Ensure values are trimmed/coerced before validation ──
-              onValuesChange={() => { }}
+              onValuesChange={() => {}}
             >
               <div
                 style={{
@@ -539,8 +539,8 @@ export default function CheckoutPage() {
                     const ui = issueUi(issue);
                     const maxIfKnown =
                       issue &&
-                        issue.reason === "INSUFFICIENT" &&
-                        Number(issue.available) > 0
+                      issue.reason === "INSUFFICIENT" &&
+                      Number(issue.available) > 0
                         ? Number(issue.available)
                         : undefined;
                     const disablePlus =
@@ -554,12 +554,13 @@ export default function CheckoutPage() {
                         style={{
                           padding: 12,
                           borderRadius: 14,
-                          border: `1px solid ${ui
+                          border: `1px solid ${
+                            ui
                               ? ui.color === "#cf1322"
                                 ? "rgba(207,19,34,0.35)"
                                 : "rgba(212,136,6,0.35)"
                               : "var(--aca-border)"
-                            }`,
+                          }`,
                           background: ui
                             ? "rgba(0,0,0,0.02)"
                             : "var(--aca-bg2)",

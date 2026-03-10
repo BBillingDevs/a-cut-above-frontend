@@ -24,7 +24,7 @@ import {
   DeleteOutlined,
   ShoppingCartOutlined,
 } from "@ant-design/icons";
-import { api, API_BASE } from "../../api/client";
+import { api, API_BASE, RAILWAY_BASE } from "../../api/client";
 import type { Product } from "../../types";
 import { useCart } from "../../context/CartContext";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -65,7 +65,7 @@ function money(n: number | null | undefined) {
 function resolveImageUrl(url?: string | null): string | null {
   if (!url) return null;
   if (url.startsWith("http://") || url.startsWith("https://")) {
-    return `${API_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
+    return `${RAILWAY_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
   }
   return `${API_BASE}${url}`;
 }

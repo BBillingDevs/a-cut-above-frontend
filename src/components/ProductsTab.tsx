@@ -19,7 +19,7 @@ import {
 } from "antd";
 import type { UploadProps } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
-import { api, API_BASE } from "../api/client";
+import { api, API_BASE, RAILWAY_BASE } from "../../api/client";
 import type {
   AdminCategory,
   AdminProduct,
@@ -45,7 +45,7 @@ type ProductForm = {
 function resolveImageUrl(url?: string | null): string | null {
   if (!url) return null;
   if (url.startsWith("http://") || url.startsWith("https://")) {
-    return `${API_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
+    return `${RAILWAY_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
   }
   return `${API_BASE}${url}`;
 }
