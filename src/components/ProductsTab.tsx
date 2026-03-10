@@ -19,7 +19,7 @@ import {
 } from "antd";
 import type { UploadProps } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
-import { api, API_BASE, RAILWAY_BASE } from "../../api/client";
+import { api, API_BASE, RAILWAY_BASE } from "../api/client";
 import type {
   AdminCategory,
   AdminProduct,
