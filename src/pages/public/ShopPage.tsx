@@ -170,7 +170,7 @@ export default function ShopPage() {
 
   const categoryDefs = useMemo(() => {
     const categoryDefs = useMemo(() => {
-      const map = new Map() as Map<string, { key: string; label: string; iconKey: string }>();
+      const map: Map<string, { key: string; label: string; iconKey: string }> = new Map();
       for (const p of products) {
         if (p.category?.id) {
           map.set(p.category.id, {
