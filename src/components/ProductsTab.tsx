@@ -1,4 +1,3 @@
-// src/components/ProductsTab.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
   Button,
@@ -19,7 +18,8 @@ import {
 } from "antd";
 import type { UploadProps } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
-import { api, API_BASE, RAILWAY_BASE } from "../api/client";
+import { api } from "../api/client";
+import { useImageUrl } from "../lib/useImageUrl";
 import type {
   AdminCategory,
   AdminProduct,
@@ -41,14 +41,6 @@ type ProductForm = {
   avgWeightValue?: number | null;
   avgWeightUnit: "g" | "kg";
 };
-
-function resolveImageUrl(url?: string | null): string | null {
-  if (!url) return null;
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return `${RAILWAY_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
-  }
-  return `${API_BASE}${url}`;
-}
 
 function fmtGrams(g: number | null | undefined) {
   if (g === null || g === undefined) return "—";
@@ -74,6 +66,29 @@ function fromGrams(grams: number | null | undefined): {
   if (grams >= 1000)
     return { value: parseFloat((grams / 1000).toFixed(3)), unit: "kg" };
   return { value: grams, unit: "g" };
+}
+
+function ProductImage({
+  url,
+  alt,
+  style,
+}: {
+  url?: string | null;
+  alt: string;
+  style?: React.CSSProperties;
+}) {
+  const src = useImageUrl(url);
+  if (!src) return null;
+  return (
+    <img
+      src={src}
+      alt={alt}
+      style={style}
+      onError={(e) => {
+        (e.currentTarget as HTMLImageElement).style.display = "none";
+      }}
+    />
+  );
 }
 
 export default function ProductsTab({
@@ -119,7 +134,6 @@ export default function ProductsTab({
     [categories],
   );
 
-  // Split active vs archived
   const visibleProducts = useMemo(
     () => products.filter((p) => (showArchived ? !p.isActive : p.isActive)),
     [products, showArchived],
@@ -365,7 +379,6 @@ export default function ProductsTab({
             return false;
           },
         };
-        const imgSrc = resolveImageUrl(p.imageUrl);
         return (
           <div style={{ display: "grid", gap: 6 }}>
             <div
@@ -378,17 +391,11 @@ export default function ProductsTab({
                 background: "#f5f5f5",
               }}
             >
-              {imgSrc ? (
-                <img
-                  src={imgSrc}
-                  alt={p.name}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display =
-                      "none";
-                  }}
-                />
-              ) : null}
+              <ProductImage
+                url={p.imageUrl}
+                alt={p.name}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
             </div>
             <Space size={6} wrap>
               <Upload {...uploadProps}>
@@ -631,8 +638,8 @@ export default function ProductsTab({
                     }}
                   />
                 ) : editingProduct?.imageUrl ? (
-                  <img
-                    src={resolveImageUrl(editingProduct.imageUrl) ?? ""}
+                  <ProductImage
+                    url={editingProduct.imageUrl}
                     alt={editingProduct.name}
                     style={{
                       width: "100%",

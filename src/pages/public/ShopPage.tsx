@@ -24,7 +24,8 @@ import {
   DeleteOutlined,
   ShoppingCartOutlined,
 } from "@ant-design/icons";
-import { api, API_BASE, RAILWAY_BASE } from "../../api/client";
+import { api } from "../../api/client";
+import { useImageUrl } from "../../lib/useImageUrl";
 import type { Product } from "../../types";
 import { useCart } from "../../context/CartContext";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -62,17 +63,35 @@ function money(n: number | null | undefined) {
   return n === null || n === undefined ? "—" : `$${n.toFixed(2)}`;
 }
 
-function resolveImageUrl(url?: string | null): string | null {
-  if (!url) return null;
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return `${RAILWAY_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
-  }
-  return `${API_BASE}${url}`;
-}
-
 function fmtGrams(g: number | null | undefined): string | null {
   if (g === null || g === undefined) return null;
   return g >= 1000 ? `${(g / 1000).toFixed(2)} kg` : `${g} g`;
+}
+
+function ProductImage({
+  url,
+  alt,
+  style,
+  className,
+}: {
+  url?: string | null;
+  alt: string;
+  style?: React.CSSProperties;
+  className?: string;
+}) {
+  const src = useImageUrl(url);
+  if (!src) return null;
+  return (
+    <img
+      src={src}
+      alt={alt}
+      style={style}
+      className={className}
+      onError={(e) => {
+        (e.currentTarget as HTMLImageElement).style.display = "none";
+      }}
+    />
+  );
 }
 
 export default function ShopPage() {
@@ -443,9 +462,6 @@ export default function ShopPage() {
                 ) : (
                   <div style={{ display: "grid", gap: 10 }}>
                     {summaryItems.map((row) => {
-                      const img = resolveImageUrl(
-                        (row.product as any).imageUrl,
-                      );
                       const unitLabel = summaryUnitLabel(row.product as any);
                       const unitPrice = summaryUnitPrice(row.product as any);
                       const qty = Number(row.qty || 1);
@@ -477,22 +493,15 @@ export default function ShopPage() {
                               border: "1px solid var(--aca-border)",
                             }}
                           >
-                            {img ? (
-                              <img
-                                src={img}
-                                alt={row.product.name}
-                                style={{
-                                  width: "100%",
-                                  height: "100%",
-                                  objectFit: "cover",
-                                }}
-                                onError={(e) => {
-                                  (
-                                    e.currentTarget as HTMLImageElement
-                                  ).style.display = "none";
-                                }}
-                              />
-                            ) : null}
+                            <ProductImage
+                              url={(row.product as any).imageUrl}
+                              alt={row.product.name}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
+                              }}
+                            />
                           </div>
 
                           <div style={{ minWidth: 0, paddingTop: 4 }}>
@@ -666,14 +675,11 @@ export default function ShopPage() {
                   </Tag>
                 );
 
-              const imgSrc = resolveImageUrl(p.imageUrl);
-
               const unitLower = (p.unit || "").toLowerCase();
               const displayPrice =
                 unitLower === "kg"
                   ? money(p.pricePerKg ?? p.price)
                   : money(p.pricePerPack ?? p.price);
-
               const displayLabel =
                 unitLower === "kg" ? "Price / kg" : "Price / pack";
 
@@ -705,22 +711,16 @@ export default function ShopPage() {
                     extra={stockTag}
                     cover={
                       <div className="aca-productMedia">
-                        {imgSrc ? (
-                          <img
-                            src={imgSrc}
-                            alt={p.name}
-                            style={{
-                              width: "100%",
-                              height: 180,
-                              objectFit: "cover",
-                            }}
-                            onError={(e) => {
-                              (
-                                e.currentTarget as HTMLImageElement
-                              ).style.display = "none";
-                            }}
-                          />
-                        ) : (
+                        <ProductImage
+                          url={p.imageUrl}
+                          alt={p.name}
+                          style={{
+                            width: "100%",
+                            height: 180,
+                            objectFit: "cover",
+                          }}
+                        />
+                        {!p.imageUrl && (
                           <div
                             className="aca-productMedia__placeholder"
                             style={{ height: 180 }}
@@ -843,7 +843,6 @@ export default function ShopPage() {
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {summaryItems.map((row) => {
-                  const img = resolveImageUrl((row.product as any).imageUrl);
                   const unitLabel = summaryUnitLabel(row.product as any);
                   const unitPrice = summaryUnitPrice(row.product as any);
                   const qty = Number(row.qty || 1);
@@ -875,22 +874,15 @@ export default function ShopPage() {
                           border: "1px solid var(--aca-border)",
                         }}
                       >
-                        {img ? (
-                          <img
-                            src={img}
-                            alt={row.product.name}
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                            }}
-                            onError={(e) => {
-                              (
-                                e.currentTarget as HTMLImageElement
-                              ).style.display = "none";
-                            }}
-                          />
-                        ) : null}
+                        <ProductImage
+                          url={(row.product as any).imageUrl}
+                          alt={row.product.name}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                          }}
+                        />
                       </div>
 
                       <div style={{ minWidth: 0, paddingTop: 2 }}>
