@@ -63,8 +63,11 @@ function money(n: number | null | undefined) {
   return n === null || n === undefined ? "—" : `$${n.toFixed(2)}`;
 }
 
-function resolveImageUrl(url?: string | null) {
+function resolveImageUrl(url?: string | null): string | null {
   if (!url) return null;
+  if (url.includes("storage.railway.app")) {
+    return `${API_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
+  }
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   return `${API_BASE}${url}`;
 }
@@ -166,10 +169,10 @@ export default function ShopPage() {
   }, []);
 
   const categoryDefs = useMemo(() => {
-    const map = new Map<
-      string,
+    const map = new Map
+    string,
       { key: string; label: string; iconKey: string }
-    >();
+      > ();
     for (const p of products) {
       if (p.category?.id) {
         map.set(p.category.id, {
@@ -323,7 +326,6 @@ export default function ShopPage() {
         />
       </div>
 
-      {/* Mobile category chips */}
       {isMobile ? (
         <div style={{ marginTop: 12 }}>
           <div
@@ -394,7 +396,6 @@ export default function ShopPage() {
           alignItems: "start",
         }}
       >
-        {/* LEFT sidebar (desktop only) */}
         {!isMobile ? (
           <aside
             style={{ position: showSummary ? "sticky" : "static", top: 16 }}
@@ -639,7 +640,6 @@ export default function ShopPage() {
           </aside>
         ) : null}
 
-        {/* RIGHT — product grid */}
         <section className="aca-products">
           <Row gutter={[16, 16]}>
             {filtered.map((p) => {
@@ -752,7 +752,6 @@ export default function ShopPage() {
                         <Text type="secondary">Sold by: Pack</Text>
                       </div>
 
-                      {/* ── Avg weight ── */}
                       {avgWeightLabel ? (
                         <div className="aca-unitHint" style={{ marginTop: 2 }}>
                           <Text type="secondary">
@@ -823,7 +822,6 @@ export default function ShopPage() {
         </section>
       </div>
 
-      {/* Mobile cart button + drawer */}
       {isMobile ? (
         <>
           <FloatButton
