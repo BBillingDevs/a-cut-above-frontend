@@ -44,7 +44,9 @@ type ProductForm = {
 
 function resolveImageUrl(url?: string | null): string | null {
   if (!url) return null;
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return `${API_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
+  }
   return `${API_BASE}${url}`;
 }
 
