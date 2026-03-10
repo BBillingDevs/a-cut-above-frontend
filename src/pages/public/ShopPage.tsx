@@ -24,8 +24,7 @@ import {
   DeleteOutlined,
   ShoppingCartOutlined,
 } from "@ant-design/icons";
-import { api } from "../../api/client";
-import { useImageUrl } from "../../lib/useImageUrl";
+import { api, RAILWAY_BASE } from "../../api/client";
 import type { Product } from "../../types";
 import { useCart } from "../../context/CartContext";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -68,30 +67,10 @@ function fmtGrams(g: number | null | undefined): string | null {
   return g >= 1000 ? `${(g / 1000).toFixed(2)} kg` : `${g} g`;
 }
 
-function ProductImage({
-  url,
-  alt,
-  style,
-  className,
-}: {
-  url?: string | null;
-  alt: string;
-  style?: React.CSSProperties;
-  className?: string;
-}) {
-  const src = useImageUrl(url);
-  if (!src) return null;
-  return (
-    <img
-      src={src}
-      alt={alt}
-      style={style}
-      className={className}
-      onError={(e) => {
-        (e.currentTarget as HTMLImageElement).style.display = "none";
-      }}
-    />
-  );
+function resolveImageUrl(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("/uploads/")) return `${RAILWAY_BASE}${url}`;
+  return null;
 }
 
 export default function ShopPage() {
@@ -205,11 +184,8 @@ export default function ShopPage() {
 
   const filtered = useMemo(() => {
     let list = products;
-
-    if (activeCat !== "all") {
+    if (activeCat !== "all")
       list = list.filter((p) => p.category?.id === activeCat);
-    }
-
     if (q) {
       list = list.filter(
         (p) =>
@@ -217,18 +193,15 @@ export default function ShopPage() {
           (p.description || "").toLowerCase().includes(q),
       );
     }
-
     const unitPrice = (p: PricedProduct) => {
       if ((p.unit || "").toLowerCase() === "kg")
         return p.pricePerKg ?? p.price ?? 0;
       return p.pricePerPack ?? p.price ?? 0;
     };
-
     if (sort === "price_asc")
       list = [...list].sort((a, b) => unitPrice(a) - unitPrice(b));
     if (sort === "price_desc")
       list = [...list].sort((a, b) => unitPrice(b) - unitPrice(a));
-
     return list;
   }, [products, q, activeCat, sort]);
 
@@ -462,6 +435,9 @@ export default function ShopPage() {
                 ) : (
                   <div style={{ display: "grid", gap: 10 }}>
                     {summaryItems.map((row) => {
+                      const img = resolveImageUrl(
+                        (row.product as any).imageUrl,
+                      );
                       const unitLabel = summaryUnitLabel(row.product as any);
                       const unitPrice = summaryUnitPrice(row.product as any);
                       const qty = Number(row.qty || 1);
@@ -493,15 +469,22 @@ export default function ShopPage() {
                               border: "1px solid var(--aca-border)",
                             }}
                           >
-                            <ProductImage
-                              url={(row.product as any).imageUrl}
-                              alt={row.product.name}
-                              style={{
-                                width: "100%",
-                                height: "100%",
-                                objectFit: "cover",
-                              }}
-                            />
+                            {img ? (
+                              <img
+                                src={img}
+                                alt={row.product.name}
+                                style={{
+                                  width: "100%",
+                                  height: "100%",
+                                  objectFit: "cover",
+                                }}
+                                onError={(e) => {
+                                  (
+                                    e.currentTarget as HTMLImageElement
+                                  ).style.display = "none";
+                                }}
+                              />
+                            ) : null}
                           </div>
 
                           <div style={{ minWidth: 0, paddingTop: 4 }}>
@@ -623,7 +606,6 @@ export default function ShopPage() {
                         </div>
                       );
                     })}
-
                     {items.length > 10 ? (
                       <Text type="secondary">+ {items.length - 10} more…</Text>
                     ) : null}
@@ -661,9 +643,9 @@ export default function ShopPage() {
                   : Math.max(1, Math.min(currentQty, Math.max(1, remaining)));
 
               if (safeQty !== currentQty) {
-                queueMicrotask(() => {
-                  setQtyMap((m) => ({ ...m, [p.id]: safeQty }));
-                });
+                queueMicrotask(() =>
+                  setQtyMap((m) => ({ ...m, [p.id]: safeQty })),
+                );
               }
 
               const stockTag =
@@ -675,6 +657,7 @@ export default function ShopPage() {
                   </Tag>
                 );
 
+              const imgSrc = resolveImageUrl(p.imageUrl);
               const unitLower = (p.unit || "").toLowerCase();
               const displayPrice =
                 unitLower === "kg"
@@ -682,12 +665,10 @@ export default function ShopPage() {
                   : money(p.pricePerPack ?? p.price);
               const displayLabel =
                 unitLower === "kg" ? "Price / kg" : "Price / pack";
-
               const addDisabled =
                 !windowState.open ||
                 soldOut ||
                 (remaining !== null && remaining <= 0);
-
               const avgWeightLabel = fmtGrams(p.avgWeightG);
 
               return (
@@ -711,16 +692,22 @@ export default function ShopPage() {
                     extra={stockTag}
                     cover={
                       <div className="aca-productMedia">
-                        <ProductImage
-                          url={p.imageUrl}
-                          alt={p.name}
-                          style={{
-                            width: "100%",
-                            height: 180,
-                            objectFit: "cover",
-                          }}
-                        />
-                        {!p.imageUrl && (
+                        {imgSrc ? (
+                          <img
+                            src={imgSrc}
+                            alt={p.name}
+                            style={{
+                              width: "100%",
+                              height: 180,
+                              objectFit: "cover",
+                            }}
+                            onError={(e) => {
+                              (
+                                e.currentTarget as HTMLImageElement
+                              ).style.display = "none";
+                            }}
+                          />
+                        ) : (
                           <div
                             className="aca-productMedia__placeholder"
                             style={{ height: 180 }}
@@ -743,11 +730,9 @@ export default function ShopPage() {
                           {displayPrice}
                         </Text>
                       </div>
-
                       <div className="aca-unitHint">
                         <Text type="secondary">Sold by: Pack</Text>
                       </div>
-
                       {avgWeightLabel ? (
                         <div className="aca-unitHint" style={{ marginTop: 2 }}>
                           <Text type="secondary">
@@ -755,7 +740,6 @@ export default function ShopPage() {
                           </Text>
                         </div>
                       ) : null}
-
                       {stock !== null ? (
                         <div className="aca-unitHint" style={{ marginTop: 4 }}>
                           <Text type="secondary">
@@ -829,7 +813,6 @@ export default function ShopPage() {
             tooltip="Cart"
             onClick={() => setCartOpen(true)}
           />
-
           <Drawer
             title={`Cart (${items.length})`}
             open={cartOpen}
@@ -843,6 +826,7 @@ export default function ShopPage() {
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {summaryItems.map((row) => {
+                  const img = resolveImageUrl((row.product as any).imageUrl);
                   const unitLabel = summaryUnitLabel(row.product as any);
                   const unitPrice = summaryUnitPrice(row.product as any);
                   const qty = Number(row.qty || 1);
@@ -874,15 +858,22 @@ export default function ShopPage() {
                           border: "1px solid var(--aca-border)",
                         }}
                       >
-                        <ProductImage
-                          url={(row.product as any).imageUrl}
-                          alt={row.product.name}
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                          }}
-                        />
+                        {img ? (
+                          <img
+                            src={img}
+                            alt={row.product.name}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                            onError={(e) => {
+                              (
+                                e.currentTarget as HTMLImageElement
+                              ).style.display = "none";
+                            }}
+                          />
+                        ) : null}
                       </div>
 
                       <div style={{ minWidth: 0, paddingTop: 2 }}>
@@ -963,7 +954,6 @@ export default function ShopPage() {
                     </div>
                   );
                 })}
-
                 {items.length > 10 ? (
                   <Text type="secondary">+ {items.length - 10} more…</Text>
                 ) : null}

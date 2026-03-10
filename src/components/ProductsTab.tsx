@@ -18,8 +18,7 @@ import {
 } from "antd";
 import type { UploadProps } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
-import { api } from "../api/client";
-import { useImageUrl } from "../lib/useImageUrl";
+import { api, RAILWAY_BASE } from "../api/client";
 import type {
   AdminCategory,
   AdminProduct,
@@ -41,6 +40,12 @@ type ProductForm = {
   avgWeightValue?: number | null;
   avgWeightUnit: "g" | "kg";
 };
+
+function resolveImageUrl(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("/uploads/")) return `${RAILWAY_BASE}${url}`;
+  return null;
+}
 
 function fmtGrams(g: number | null | undefined) {
   if (g === null || g === undefined) return "—";
@@ -66,29 +71,6 @@ function fromGrams(grams: number | null | undefined): {
   if (grams >= 1000)
     return { value: parseFloat((grams / 1000).toFixed(3)), unit: "kg" };
   return { value: grams, unit: "g" };
-}
-
-function ProductImage({
-  url,
-  alt,
-  style,
-}: {
-  url?: string | null;
-  alt: string;
-  style?: React.CSSProperties;
-}) {
-  const src = useImageUrl(url);
-  if (!src) return null;
-  return (
-    <img
-      src={src}
-      alt={alt}
-      style={style}
-      onError={(e) => {
-        (e.currentTarget as HTMLImageElement).style.display = "none";
-      }}
-    />
-  );
 }
 
 export default function ProductsTab({
@@ -234,16 +216,12 @@ export default function ProductsTab({
       .filter((p) => (p.categoryId ?? null) === withinCategoryId)
       .slice()
       .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0));
-
     const idx = group.findIndex((p) => p.id === productId);
     if (idx === -1) return;
-
     const swapWith = direction === "up" ? idx - 1 : idx + 1;
     if (swapWith < 0 || swapWith >= group.length) return;
-
     const ids = group.map((p) => p.id);
     [ids[idx], ids[swapWith]] = [ids[swapWith], ids[idx]];
-
     try {
       await api.put("/api/admin/products/reorder", { ids });
       message.success("Reordered");
@@ -279,12 +257,10 @@ export default function ProductsTab({
 
   async function saveProduct() {
     const values: ProductForm = await productForm.validateFields();
-
     const avgWeightG = toGrams(
       values.avgWeightValue ?? null,
       values.avgWeightUnit ?? "g",
     );
-
     const payload = {
       name: values.name,
       description: values.description ?? "",
@@ -331,7 +307,6 @@ export default function ProductsTab({
       await api.post(`/api/admin/products`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-
       message.success("Product created");
       setProductModalOpen(false);
       resetPendingImage();
@@ -379,6 +354,7 @@ export default function ProductsTab({
             return false;
           },
         };
+        const imgSrc = resolveImageUrl(p.imageUrl);
         return (
           <div style={{ display: "grid", gap: 6 }}>
             <div
@@ -391,11 +367,17 @@ export default function ProductsTab({
                 background: "#f5f5f5",
               }}
             >
-              <ProductImage
-                url={p.imageUrl}
-                alt={p.name}
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              />
+              {imgSrc ? (
+                <img
+                  src={imgSrc}
+                  alt={p.name}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display =
+                      "none";
+                  }}
+                />
+              ) : null}
             </div>
             <Space size={6} wrap>
               <Upload {...uploadProps}>
@@ -503,13 +485,11 @@ export default function ProductsTab({
             </Space>
           );
         }
-
         const hasOrders = Number(p._count?.orderItems ?? 0) > 0;
         const confirmTitle = hasOrders
           ? "This product has previous orders. It will be archived (hidden from shop)."
           : "Permanently delete this product? This cannot be undone.";
         const btnLabel = hasOrders ? "Archive" : "Delete";
-
         return (
           <Space>
             <Button onClick={() => openEditProduct(p)}>Edit</Button>
@@ -638,15 +618,26 @@ export default function ProductsTab({
                     }}
                   />
                 ) : editingProduct?.imageUrl ? (
-                  <ProductImage
-                    url={editingProduct.imageUrl}
-                    alt={editingProduct.name}
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
-                  />
+                  (() => {
+                    const src = resolveImageUrl(editingProduct.imageUrl);
+                    return src ? (
+                      <img
+                        src={src}
+                        alt={editingProduct.name}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }}
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display =
+                            "none";
+                        }}
+                      />
+                    ) : (
+                      <Text type="secondary">Choose an image (optional)</Text>
+                    );
+                  })()
                 ) : (
                   <Text type="secondary">Choose an image (optional)</Text>
                 )}
@@ -676,11 +667,9 @@ export default function ProductsTab({
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-
           <Form.Item name="cutType" label="Cut type (optional)">
             <Input placeholder="e.g. Economy, Super, Prime..." />
           </Form.Item>
-
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={2} />
           </Form.Item>
@@ -727,7 +716,6 @@ export default function ProductsTab({
           >
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
-
           <Form.Item
             name="wholesalePrice"
             label="Wholesale price"
@@ -735,7 +723,6 @@ export default function ProductsTab({
           >
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
-
           <Form.Item
             name="stockQty"
             label="Stock quantity"
