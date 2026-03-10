@@ -1,4 +1,3 @@
-// ShopPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -65,10 +64,9 @@ function money(n: number | null | undefined) {
 
 function resolveImageUrl(url?: string | null): string | null {
   if (!url) return null;
-  if (url.includes("storage.railway.app")) {
+  if (url.startsWith("http://") || url.startsWith("https://")) {
     return `${API_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
   }
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
   return `${API_BASE}${url}`;
 }
 
