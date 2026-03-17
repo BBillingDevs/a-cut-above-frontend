@@ -32,6 +32,7 @@ import type {
   AdminProduct,
   AdminWindow,
   AdminOrderItem,
+  CarcassWeightRecord,
 } from "../pages/admin/AdminDashboardPage";
 
 const { RangePicker } = DatePicker;
@@ -58,9 +59,6 @@ function isKgItem(it: AdminOrderItem) {
   return String((it as any).unit || "").toLowerCase() === "kg";
 }
 
-/**
- * Only treat totals as valid once ALL kg items have weightKg.
- */
 function weightsComplete(order: AdminOrder) {
   const kgItems = (order.items || []).filter(isKgItem);
   if (kgItems.length === 0) return true;
@@ -70,9 +68,6 @@ function weightsComplete(order: AdminOrder) {
   });
 }
 
-/**
- * Money is ONLY trusted if weights are complete.
- */
 function moneyReady(order: AdminOrder) {
   return weightsComplete(order);
 }
@@ -99,11 +94,13 @@ export default function DashboardTab({
   orders,
   products,
   windows,
+  carcassWeights,
 }: {
   loading: boolean;
   orders: AdminOrder[];
   products: AdminProduct[];
   windows: AdminWindow[];
+  carcassWeights: CarcassWeightRecord[];
 }) {
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>([
     dayjs().subtract(30, "day").startOf("day"),
@@ -200,6 +197,28 @@ export default function DashboardTab({
     () => filteredOrders.filter((o) => moneyReady(o)),
     [filteredOrders],
   );
+
+  const carcassStats = useMemo(() => {
+    const complete = (carcassWeights || []).filter(
+      (r) =>
+        r.dryWeightKg !== null &&
+        r.dryWeightKg !== undefined &&
+        n(r.wetWeightKg) > 0,
+    );
+
+    const avgLossPct = complete.length
+      ? complete.reduce((sum, r) => {
+        const wet = n(r.wetWeightKg);
+        const dry = n(r.dryWeightKg);
+        return sum + ((wet - dry) / wet) * 100;
+      }, 0) / complete.length
+      : 0;
+
+    return {
+      completeCount: complete.length,
+      avgLossPct,
+    };
+  }, [carcassWeights]);
 
   const kpis = useMemo(() => {
     const totalOrders = filteredOrders.length;
@@ -534,9 +553,9 @@ export default function DashboardTab({
 
         <Col xs={24} sm={12} lg={6}>
           <Card className="aca-card" loading={loading}>
-            <Statistic title="Profit (estimated)" value={money(kpis.profit)} />
+            <Statistic title="Profit" value={money(kpis.profit)} />
             <div style={{ marginTop: 6, opacity: 0.75, fontSize: 12 }}>
-              Based on current product cost prices
+              Based on current product cost prices and packed weights
             </div>
           </Card>
         </Col>
@@ -577,6 +596,20 @@ export default function DashboardTab({
         <Col xs={24} sm={12} lg={6}>
           <Card className="aca-card" loading={loading}>
             <Statistic
+              title="Avg % Weight Loss"
+              value={carcassStats.avgLossPct}
+              precision={1}
+              suffix="%"
+            />
+            <div style={{ marginTop: 6, opacity: 0.75, fontSize: 12 }}>
+              Based on carcasses with both wet and dry weights
+            </div>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card className="aca-card" loading={loading}>
+            <Statistic
               title="Delivered %"
               value={kpis.deliveredPct}
               precision={1}
@@ -594,8 +627,10 @@ export default function DashboardTab({
             />
           </Card>
         </Col>
+      </Row>
 
-        <Col xs={24} sm={12} lg={6}>
+      <Row gutter={[12, 12]}>
+        <Col xs={24}>
           <Card className="aca-card" loading={loading}>
             <Space wrap>
               {["PROCESSING", "PACKED", "SHIPPING", "DELIVERED"].map((s) => (
@@ -603,6 +638,9 @@ export default function DashboardTab({
                   {s}: {kpis.statusCounts[s] || 0}
                 </Tag>
               ))}
+              <Tag color="purple">
+                Complete carcasses: {carcassStats.completeCount}
+              </Tag>
             </Space>
           </Card>
         </Col>

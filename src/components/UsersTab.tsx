@@ -41,61 +41,68 @@ const PERMISSION_GROUPS: {
   title: string;
   items: { label: string; value: AdminPermission }[];
 }[] = [
-  {
-    title: "Dashboard",
-    items: [{ label: "View dashboard", value: "dashboard.view" }],
-  },
-  {
-    title: "Orders",
-    items: [
-      { label: "View orders", value: "orders.view" },
-      { label: "Update order status", value: "orders.status.update" },
-      { label: "Enter/update weights", value: "orders.weights.update" },
-      { label: "Delete orders", value: "orders.delete" },
-      { label: "Open packing slip / invoice PDFs", value: "packinglists.pdf" },
-      { label: "Export packing lists", value: "packinglists.export" },
-    ],
-  },
-  {
-    title: "Products",
-    items: [
-      { label: "View products", value: "products.view" },
-      { label: "Manage products", value: "products.manage" },
-    ],
-  },
-  {
-    title: "Categories",
-    items: [
-      { label: "View categories", value: "categories.view" },
-      { label: "Manage categories", value: "categories.manage" },
-    ],
-  },
-  {
-    title: "Windows",
-    items: [
-      { label: "View order windows", value: "windows.view" },
-      { label: "Manage order windows", value: "windows.manage" },
-    ],
-  },
-  {
-    title: "Dropoffs",
-    items: [
-      { label: "View dropoff locations", value: "dropoffs.view" },
-      { label: "Manage dropoff locations", value: "dropoffs.manage" },
-    ],
-  },
-  {
-    title: "Users",
-    items: [
-      { label: "View users", value: "users.view" },
-      { label: "Manage users", value: "users.manage" },
-    ],
-  },
-  {
-    title: "Everything",
-    items: [{ label: "Full admin access", value: "admin.full" }],
-  },
-];
+    {
+      title: "Dashboard",
+      items: [{ label: "View dashboard", value: "dashboard.view" }],
+    },
+    {
+      title: "Orders",
+      items: [
+        { label: "View orders", value: "orders.view" },
+        { label: "Update order status", value: "orders.status.update" },
+        { label: "Enter/update weights", value: "orders.weights.update" },
+        { label: "Delete orders", value: "orders.delete" },
+        { label: "Open packing slip / invoice PDFs", value: "packinglists.pdf" },
+        { label: "Export packing lists", value: "packinglists.export" },
+      ],
+    },
+    {
+      title: "Products",
+      items: [
+        { label: "View products", value: "products.view" },
+        { label: "Manage products", value: "products.manage" },
+      ],
+    },
+    {
+      title: "Categories",
+      items: [
+        { label: "View categories", value: "categories.view" },
+        { label: "Manage categories", value: "categories.manage" },
+      ],
+    },
+    {
+      title: "Windows",
+      items: [
+        { label: "View order windows", value: "windows.view" },
+        { label: "Manage order windows", value: "windows.manage" },
+      ],
+    },
+    {
+      title: "Dropoffs",
+      items: [
+        { label: "View dropoff locations", value: "dropoffs.view" },
+        { label: "Manage dropoff locations", value: "dropoffs.manage" },
+      ],
+    },
+    {
+      title: "Users",
+      items: [
+        { label: "View users", value: "users.view" },
+        { label: "Manage users", value: "users.manage" },
+      ],
+    },
+    {
+      title: "Carcass Weights",
+      items: [
+        { label: "View carcass weights", value: "carcassweights.view" },
+        { label: "Manage carcass weights", value: "carcassweights.manage" },
+      ],
+    },
+    {
+      title: "Everything",
+      items: [{ label: "Full admin access", value: "admin.full" }],
+    },
+  ];
 
 export default function UsersTab({
   loading,
@@ -308,9 +315,9 @@ export default function UsersTab({
               editingUser
                 ? []
                 : [
-                    { required: true, message: "Password is required" },
-                    { min: 6, message: "Minimum 6 characters" },
-                  ]
+                  { required: true, message: "Password is required" },
+                  { min: 6, message: "Minimum 6 characters" },
+                ]
             }
           >
             <Input.Password />

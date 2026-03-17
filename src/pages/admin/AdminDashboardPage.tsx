@@ -1,3 +1,4 @@
+// src/pages/admin/AdminDashboardPage.tsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { Tabs, message } from "antd";
 import { useNavigate } from "react-router-dom";
@@ -11,6 +12,7 @@ import WindowsTab from "../../components/WindowsTab";
 import DropoffLocationsTab from "../../components/DropoffLocationsTab";
 import DashboardTab from "../../components/DashboardTab";
 import UsersTab from "../../components/UsersTab";
+import CarcassWeightsTab from "../../components/CarcassWeightsTab";
 
 export type AdminCategory = {
   id: string;
@@ -100,7 +102,21 @@ export type AdminPermission =
   | "dropoffs.view"
   | "dropoffs.manage"
   | "users.view"
-  | "users.manage";
+  | "users.manage"
+  | "carcassweights.view"
+  | "carcassweights.manage";
+
+export type CarcassWeightRecord = {
+  id: string;
+  animalId: string;
+  weighedAt: string;
+  wetWeightKg: string | number;
+  dryWeightKg?: string | number | null;
+  dryWeighedAt?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type AdminUserRecord = {
   id: string;
@@ -129,6 +145,9 @@ export default function AdminDashboardPage() {
   const [report, setReport] = useState<any>(null);
 
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
+  const [carcassWeights, setCarcassWeights] = useState<CarcassWeightRecord[]>(
+    [],
+  );
   const [myPermissions, setMyPermissions] = useState<AdminPermission[]>([]);
 
   const [isAuthed, setIsAuthed] = useState(false);
@@ -154,12 +173,15 @@ export default function AdminDashboardPage() {
       const ok = await ensureAuth();
       if (!ok) return;
 
-      const [pRes, oRes, wRes, cRes, uRes] = await Promise.all([
+      const [pRes, oRes, wRes, cRes, uRes, cwRes] = await Promise.all([
         api.get("/api/admin/products"),
         api.get("/api/admin/orders"),
         api.get("/api/admin/windows"),
         api.get("/api/admin/categories"),
         api.get("/api/admin/users").catch(() => ({ data: { users: [] } })),
+        api
+          .get("/api/admin/carcass-weights")
+          .catch(() => ({ data: { records: [] } })),
       ]);
 
       setProducts(pRes.data.products || []);
@@ -167,6 +189,7 @@ export default function AdminDashboardPage() {
       setWindows(wRes.data.windows || []);
       setCategories(cRes.data.categories || []);
       setUsers(uRes.data.users || []);
+      setCarcassWeights(cwRes.data.records || []);
     } catch (e: any) {
       message.error("Failed to load admin data");
     } finally {
@@ -227,6 +250,10 @@ export default function AdminDashboardPage() {
   const canViewDropoffs = hasPermission(myPermissions, "dropoffs.view");
   const canViewWindows = hasPermission(myPermissions, "windows.view");
   const canViewUsers = hasPermission(myPermissions, "users.view");
+  const canViewCarcassWeights = hasPermission(
+    myPermissions,
+    "carcassweights.view",
+  );
 
   return (
     <AdminShell>
@@ -240,119 +267,138 @@ export default function AdminDashboardPage() {
                 ? "products"
                 : canViewUsers
                   ? "users"
-                  : "dashboard"
+                  : canViewCarcassWeights
+                    ? "carcass-weights"
+                    : "dashboard"
         }
         items={[
           ...(canViewDashboard
             ? [
-                {
-                  key: "dashboard",
-                  label: "Dashboard",
-                  children: (
-                    <DashboardTab
-                      loading={loading}
-                      orders={orders}
-                      products={products}
-                      windows={windows}
-                    />
-                  ),
-                },
-              ]
+              {
+                key: "dashboard",
+                label: "Dashboard",
+                children: (
+                  <DashboardTab
+                    loading={loading}
+                    orders={orders}
+                    products={products}
+                    windows={windows}
+                  />
+                ),
+              },
+            ]
             : []),
 
           ...(canViewOrders
             ? [
-                {
-                  key: "orders",
-                  label: "Orders",
-                  children: (
-                    <OrdersTab
-                      loading={loading}
-                      orders={orders}
-                      onReload={loadAll}
-                      permissions={myPermissions}
-                    />
-                  ),
-                },
-              ]
+              {
+                key: "orders",
+                label: "Orders",
+                children: (
+                  <OrdersTab
+                    loading={loading}
+                    orders={orders}
+                    onReload={loadAll}
+                    permissions={myPermissions}
+                  />
+                ),
+              },
+            ]
             : []),
 
           ...(canViewCategories
             ? [
-                {
-                  key: "categories",
-                  label: "Categories",
-                  children: (
-                    <CategoriesTab
-                      loading={loading}
-                      categories={categories}
-                      onReload={loadAll}
-                    />
-                  ),
-                },
-              ]
+              {
+                key: "categories",
+                label: "Categories",
+                children: (
+                  <CategoriesTab
+                    loading={loading}
+                    categories={categories}
+                    onReload={loadAll}
+                  />
+                ),
+              },
+            ]
             : []),
 
           ...(canViewProducts
             ? [
-                {
-                  key: "products",
-                  label: "Products",
-                  children: (
-                    <ProductsTab
-                      loading={loading}
-                      products={products}
-                      categories={categories}
-                      onReload={loadAll}
-                    />
-                  ),
-                },
-              ]
+              {
+                key: "products",
+                label: "Products",
+                children: (
+                  <ProductsTab
+                    loading={loading}
+                    products={products}
+                    categories={categories}
+                    onReload={loadAll}
+                  />
+                ),
+              },
+            ]
             : []),
 
           ...(canViewDropoffs
             ? [
-                {
-                  key: "dropoffs",
-                  label: "Deliverys",
-                  children: (
-                    <DropoffLocationsTab loading={loading} onReload={loadAll} />
-                  ),
-                },
-              ]
+              {
+                key: "dropoffs",
+                label: "Deliveries",
+                children: (
+                  <DropoffLocationsTab loading={loading} onReload={loadAll} />
+                ),
+              },
+            ]
             : []),
 
           ...(canViewWindows
             ? [
-                {
-                  key: "windows",
-                  label: "Order Windows",
-                  children: (
-                    <WindowsTab
-                      loading={loading}
-                      windows={windows}
-                      onReload={loadAll}
-                    />
-                  ),
-                },
-              ]
+              {
+                key: "windows",
+                label: "Order Windows",
+                children: (
+                  <WindowsTab
+                    loading={loading}
+                    windows={windows}
+                    onReload={loadAll}
+                  />
+                ),
+              },
+            ]
+            : []),
+
+          ...(canViewCarcassWeights
+            ? [
+              {
+                key: "carcass-weights",
+                label: "Carcass Weights",
+                children: (
+                  <CarcassWeightsTab
+                    loading={loading}
+                    records={carcassWeights}
+                    permissions={myPermissions}
+                    onReload={loadAll}
+                  />
+                ),
+              },
+            ]
             : []),
 
           ...(canViewUsers
             ? [
-                {
-                  key: "users",
-                  label: "Users",
-                  children: (
-                    <UsersTab
-                      loading={loading}
-                      users={users}
-                      currentPermissions={myPermissions}
-                      onReload={loadAll}
-                    />
-                  ),
-                },
-              ]
+              {
+                key: "users",
+                label: "Users",
+                children: (
+                  <UsersTab
+                    loading={loading}
+                    users={users}
+                    currentPermissions={myPermissions}
+                    onReload={loadAll}
+                  />
+                ),
+              },
+            ]
             : []),
         ]}
       />
