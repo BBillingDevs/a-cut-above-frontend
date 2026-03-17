@@ -1,4 +1,3 @@
-// src/pages/admin/AdminDashboardPage.tsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { Tabs, message } from "antd";
 import { useNavigate } from "react-router-dom";
@@ -11,6 +10,7 @@ import CategoriesTab from "../../components/CategoriesTab";
 import WindowsTab from "../../components/WindowsTab";
 import DropoffLocationsTab from "../../components/DropoffLocationsTab";
 import DashboardTab from "../../components/DashboardTab";
+import UsersTab from "../../components/UsersTab";
 
 export type AdminCategory = {
   id: string;
@@ -28,6 +28,7 @@ export type AdminProduct = {
   unit: string;
   retailPrice: string | number;
   wholesalePrice: string | number;
+  costPrice: string | number;
   stockQty: number;
   isActive: boolean;
   imageUrl?: string | null;
@@ -41,12 +42,12 @@ export type AdminProduct = {
 
 export type AdminOrderItem = {
   id: string;
+  productId?: string;
   productName: string;
   unit: string;
   qty: string | number;
-
-  // ✅ Fix: your OrdersTab expects weightKg (single field).
-  // Keep old fields optional if backend still returns them.
+  unitPrice?: string | number;
+  lineTotal?: string | number;
   weightKg?: string | number | null;
   wetWeightKg?: string | number | null;
   dryWeightKg?: string | number | null;
@@ -63,9 +64,14 @@ export type AdminOrder = {
   createdAt: string;
   windowId: string | null;
   items: AdminOrderItem[];
-
-  // optional (if you later add this on backend)
   deliveryWindow?: string | null;
+
+  dropoffLocationId?: string | null;
+  deliveryScheduleId?: string | null;
+  dropoffLocation?: {
+    id: string;
+    name: string;
+  } | null;
 };
 
 export type AdminWindow = {
@@ -75,6 +81,42 @@ export type AdminWindow = {
   endsAt: string;
   isActive: boolean;
 };
+
+export type AdminPermission =
+  | "admin.full"
+  | "dashboard.view"
+  | "orders.view"
+  | "orders.status.update"
+  | "orders.weights.update"
+  | "orders.delete"
+  | "packinglists.export"
+  | "packinglists.pdf"
+  | "products.view"
+  | "products.manage"
+  | "categories.view"
+  | "categories.manage"
+  | "windows.view"
+  | "windows.manage"
+  | "dropoffs.view"
+  | "dropoffs.manage"
+  | "users.view"
+  | "users.manage";
+
+export type AdminUserRecord = {
+  id: string;
+  email: string;
+  name?: string | null;
+  isActive: boolean;
+  permissions: AdminPermission[];
+  createdAt: string;
+};
+
+function hasPermission(
+  permissions: AdminPermission[],
+  needed: AdminPermission,
+) {
+  return permissions.includes("admin.full") || permissions.includes(needed);
+}
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -86,16 +128,21 @@ export default function AdminDashboardPage() {
   const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [report, setReport] = useState<any>(null);
 
-  // ✅ This controls whether topbar should show Logout
+  const [users, setUsers] = useState<AdminUserRecord[]>([]);
+  const [myPermissions, setMyPermissions] = useState<AdminPermission[]>([]);
+
   const [isAuthed, setIsAuthed] = useState(false);
 
   const ensureAuth = useCallback(async () => {
     try {
-      await api.get("/api/admin/me");
+      const res = await api.get("/api/admin/me");
+      console.log("/api/admin/me ->", res.data);
       setIsAuthed(true);
+      setMyPermissions(res.data?.user?.permissions || []);
       return true;
     } catch {
       setIsAuthed(false);
+      setMyPermissions([]);
       navigate("/admin");
       return false;
     }
@@ -107,17 +154,19 @@ export default function AdminDashboardPage() {
       const ok = await ensureAuth();
       if (!ok) return;
 
-      const [pRes, oRes, wRes, cRes] = await Promise.all([
+      const [pRes, oRes, wRes, cRes, uRes] = await Promise.all([
         api.get("/api/admin/products"),
         api.get("/api/admin/orders"),
         api.get("/api/admin/windows"),
         api.get("/api/admin/categories"),
+        api.get("/api/admin/users").catch(() => ({ data: { users: [] } })),
       ]);
 
       setProducts(pRes.data.products || []);
       setOrders(oRes.data.orders || []);
       setWindows(wRes.data.windows || []);
       setCategories(cRes.data.categories || []);
+      setUsers(uRes.data.users || []);
     } catch (e: any) {
       message.error("Failed to load admin data");
     } finally {
@@ -146,29 +195,23 @@ export default function AdminDashboardPage() {
     [windows],
   );
 
-  // ✅ Logout handler (clears local token too if you use one)
   const logout = useCallback(async () => {
     try {
       await api.post("/api/admin/auth/logout");
     } catch {
       // ignore
     } finally {
-      // If you store tokens locally, clear them here (adjust keys!)
       localStorage.removeItem("adminToken");
       localStorage.removeItem("aca_admin_token");
       localStorage.removeItem("token");
       localStorage.removeItem("access_token");
 
       setIsAuthed(false);
+      setMyPermissions([]);
       navigate("/admin");
     }
   }, [navigate]);
 
-  /**
-   * ✅ Expose auth state + logout to the AdminTopBar
-   * Easiest way: fire a custom event the App/AdminTopBar can listen to
-   * (no extra state library needed).
-   */
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("aca_admin_auth", {
@@ -177,71 +220,140 @@ export default function AdminDashboardPage() {
     );
   }, [isAuthed, logout]);
 
+  const canViewDashboard = hasPermission(myPermissions, "dashboard.view");
+  const canViewOrders = hasPermission(myPermissions, "orders.view");
+  const canViewCategories = hasPermission(myPermissions, "categories.view");
+  const canViewProducts = hasPermission(myPermissions, "products.view");
+  const canViewDropoffs = hasPermission(myPermissions, "dropoffs.view");
+  const canViewWindows = hasPermission(myPermissions, "windows.view");
+  const canViewUsers = hasPermission(myPermissions, "users.view");
+
   return (
     <AdminShell>
       <Tabs
-        defaultActiveKey="orders"
+        defaultActiveKey={
+          canViewOrders
+            ? "orders"
+            : canViewDashboard
+              ? "dashboard"
+              : canViewProducts
+                ? "products"
+                : canViewUsers
+                  ? "users"
+                  : "dashboard"
+        }
         items={[
-          {
-            key: "dashboard",
-            label: "Dashboard",
-            children: (
-              <DashboardTab
-                loading={loading}
-                orders={orders}
-                products={products}
-                windows={windows}
-              />
-            ),
-          },
-          {
-            key: "orders",
-            label: "Orders",
-            children: (
-              <OrdersTab loading={loading} orders={orders} onReload={loadAll} />
-            ),
-          },
-          {
-            key: "categories",
-            label: "Categories",
-            children: (
-              <CategoriesTab
-                loading={loading}
-                categories={categories}
-                onReload={loadAll}
-              />
-            ),
-          },
-          {
-            key: "products",
-            label: "Products",
-            children: (
-              <ProductsTab
-                loading={loading}
-                products={products}
-                categories={categories}
-                onReload={loadAll}
-              />
-            ),
-          },
-          {
-            key: "dropoffs",
-            label: "Deliverys",
-            children: (
-              <DropoffLocationsTab loading={loading} onReload={loadAll} />
-            ),
-          },
-          {
-            key: "windows",
-            label: "Order Windows",
-            children: (
-              <WindowsTab
-                loading={loading}
-                windows={windows}
-                onReload={loadAll}
-              />
-            ),
-          },
+          ...(canViewDashboard
+            ? [
+                {
+                  key: "dashboard",
+                  label: "Dashboard",
+                  children: (
+                    <DashboardTab
+                      loading={loading}
+                      orders={orders}
+                      products={products}
+                      windows={windows}
+                    />
+                  ),
+                },
+              ]
+            : []),
+
+          ...(canViewOrders
+            ? [
+                {
+                  key: "orders",
+                  label: "Orders",
+                  children: (
+                    <OrdersTab
+                      loading={loading}
+                      orders={orders}
+                      onReload={loadAll}
+                      permissions={myPermissions}
+                    />
+                  ),
+                },
+              ]
+            : []),
+
+          ...(canViewCategories
+            ? [
+                {
+                  key: "categories",
+                  label: "Categories",
+                  children: (
+                    <CategoriesTab
+                      loading={loading}
+                      categories={categories}
+                      onReload={loadAll}
+                    />
+                  ),
+                },
+              ]
+            : []),
+
+          ...(canViewProducts
+            ? [
+                {
+                  key: "products",
+                  label: "Products",
+                  children: (
+                    <ProductsTab
+                      loading={loading}
+                      products={products}
+                      categories={categories}
+                      onReload={loadAll}
+                    />
+                  ),
+                },
+              ]
+            : []),
+
+          ...(canViewDropoffs
+            ? [
+                {
+                  key: "dropoffs",
+                  label: "Deliverys",
+                  children: (
+                    <DropoffLocationsTab loading={loading} onReload={loadAll} />
+                  ),
+                },
+              ]
+            : []),
+
+          ...(canViewWindows
+            ? [
+                {
+                  key: "windows",
+                  label: "Order Windows",
+                  children: (
+                    <WindowsTab
+                      loading={loading}
+                      windows={windows}
+                      onReload={loadAll}
+                    />
+                  ),
+                },
+              ]
+            : []),
+
+          ...(canViewUsers
+            ? [
+                {
+                  key: "users",
+                  label: "Users",
+                  children: (
+                    <UsersTab
+                      loading={loading}
+                      users={users}
+                      currentPermissions={myPermissions}
+                      onReload={loadAll}
+                    />
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
     </AdminShell>

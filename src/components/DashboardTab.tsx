@@ -59,7 +59,6 @@ function isKgItem(it: AdminOrderItem) {
 }
 
 /**
- * ✅ Same rule as OrdersTab:
  * Only treat totals as valid once ALL kg items have weightKg.
  */
 function weightsComplete(order: AdminOrder) {
@@ -72,10 +71,7 @@ function weightsComplete(order: AdminOrder) {
 }
 
 /**
- * ✅ Money is ONLY trusted if weights are complete.
- * We DO NOT compute unitPrice * qty OR unitPrice * weightKg here.
- * We trust the backend's computed totals (order.total, item.lineTotal)
- * ONLY after weights are complete.
+ * Money is ONLY trusted if weights are complete.
  */
 function moneyReady(order: AdminOrder) {
   return weightsComplete(order);
@@ -85,7 +81,8 @@ type TopProductRow = {
   key: string;
   productName: string;
   qty: number;
-  revenue: number; // ✅ only from backend (lineTotal), only when moneyReady(order)
+  revenue: number;
+  profit: number;
 };
 
 type TopCustomerRow = {
@@ -93,7 +90,8 @@ type TopCustomerRow = {
   customerName: string;
   customerPhone: string;
   orders: number;
-  spend: number; // ✅ only from backend (order.total), only when moneyReady(order)
+  spend: number;
+  profit: number;
 };
 
 export default function DashboardTab({
@@ -107,7 +105,6 @@ export default function DashboardTab({
   products: AdminProduct[];
   windows: AdminWindow[];
 }) {
-  // Filters
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>([
     dayjs().subtract(30, "day").startOf("day"),
     dayjs().endOf("day"),
@@ -122,15 +119,68 @@ export default function DashboardTab({
     [windows],
   );
 
+  const productCostMaps = useMemo(() => {
+    const byId = new Map<string, number>();
+    const byName = new Map<string, number>();
+
+    for (const p of products || []) {
+      const cost = n((p as any).costPrice);
+      if ((p as any).id) byId.set(String((p as any).id), cost);
+      if ((p as any).name) {
+        byName.set(
+          String((p as any).name)
+            .trim()
+            .toLowerCase(),
+          cost,
+        );
+      }
+    }
+
+    return { byId, byName };
+  }, [products]);
+
+  function getItemCostPrice(it: any): number {
+    const productId = String(it?.productId || "").trim();
+    const productName = String(it?.productName || "")
+      .trim()
+      .toLowerCase();
+
+    if (productId && productCostMaps.byId.has(productId)) {
+      return n(productCostMaps.byId.get(productId));
+    }
+
+    if (productName && productCostMaps.byName.has(productName)) {
+      return n(productCostMaps.byName.get(productName));
+    }
+
+    return 0;
+  }
+
+  function getItemProfit(it: any): number {
+    const revenue = n(it?.lineTotal);
+    const unit = String(it?.unit || "").toLowerCase();
+    const costPrice = getItemCostPrice(it);
+
+    let costTotal = 0;
+
+    if (unit === "kg") {
+      const weightKg = n(it?.weightKg);
+      costTotal = costPrice * weightKg;
+    } else {
+      const qty = n(it?.qty);
+      costTotal = costPrice * qty;
+    }
+
+    return revenue - costTotal;
+  }
+
   const filteredOrders = useMemo(() => {
     let list = [...(orders || [])];
 
-    // Window filter
     if (windowId) {
       list = list.filter((o) => String(o.windowId || "") === String(windowId));
     }
 
-    // Date range filter (createdAt)
     if (range && (range[0] || range[1])) {
       const start = range[0]?.startOf("day") ?? null;
       const end = range[1]?.endOf("day") ?? null;
@@ -146,19 +196,25 @@ export default function DashboardTab({
     return list;
   }, [orders, range, windowId]);
 
-  // ✅ Money-ready subset
   const moneyReadyOrders = useMemo(
     () => filteredOrders.filter((o) => moneyReady(o)),
     [filteredOrders],
   );
 
-  // Basic KPIs (✅ revenue uses ONLY backend totals AND ONLY when moneyReady)
   const kpis = useMemo(() => {
     const totalOrders = filteredOrders.length;
     const moneyOrders = moneyReadyOrders.length;
 
     const revenue = moneyReadyOrders.reduce((acc, o) => acc + n(o.total), 0);
     const avgOrder = moneyOrders ? revenue / moneyOrders : 0;
+
+    const profit = moneyReadyOrders.reduce((acc, o) => {
+      const orderProfit = (o.items || []).reduce(
+        (sum, it) => sum + getItemProfit(it),
+        0,
+      );
+      return acc + orderProfit;
+    }, 0);
 
     const itemsSold = filteredOrders.reduce((acc, o) => {
       const sum = (o.items || []).reduce((a, it) => a + n((it as any).qty), 0);
@@ -183,8 +239,9 @@ export default function DashboardTab({
 
     return {
       totalOrders,
-      revenue, // ✅ only finalized
-      avgOrder, // ✅ avg over finalized orders only
+      revenue,
+      avgOrder,
+      profit,
       itemsSold,
       statusCounts,
       deliveredPct,
@@ -195,39 +252,39 @@ export default function DashboardTab({
     };
   }, [filteredOrders, moneyReadyOrders, products]);
 
-  // Sales over time (daily) ✅ revenue = sum(order.total) but ONLY for moneyReady orders
   const salesSeries = useMemo(() => {
     const byDay: Record<
       string,
-      { day: string; revenue: number; orders: number }
+      { day: string; revenue: number; profit: number; orders: number }
     > = {};
 
     for (const o of filteredOrders) {
       const day = dayjs(o.createdAt).format("YYYY-MM-DD");
-      if (!byDay[day]) byDay[day] = { day, revenue: 0, orders: 0 };
+      if (!byDay[day]) byDay[day] = { day, revenue: 0, profit: 0, orders: 0 };
 
-      // chart "orders" count can still reflect all orders
       byDay[day].orders += 1;
 
-      // revenue only if ready
-      if (moneyReady(o)) byDay[day].revenue += n(o.total);
+      if (moneyReady(o)) {
+        byDay[day].revenue += n(o.total);
+        byDay[day].profit += (o.items || []).reduce(
+          (sum, it) => sum + getItemProfit(it),
+          0,
+        );
+      }
     }
 
     return Object.values(byDay).sort((a, b) => a.day.localeCompare(b.day));
-  }, [filteredOrders]);
+  }, [filteredOrders, productCostMaps]);
 
-  // Orders by status for chart
   const statusSeries = useMemo(() => {
     const keys = ["PROCESSING", "PACKED", "SHIPPING", "DELIVERED"];
     return keys.map((k) => ({ status: k, count: kpis.statusCounts[k] || 0 }));
   }, [kpis.statusCounts]);
 
-  // Best sellers (qty + revenue)
-  // ✅ revenue only uses backend lineTotal AND ONLY when moneyReady(order)
   const topProducts = useMemo(() => {
     const map = new Map<
       string,
-      { productName: string; qty: number; revenue: number }
+      { productName: string; qty: number; revenue: number; profit: number }
     >();
 
     for (const o of filteredOrders) {
@@ -237,11 +294,19 @@ export default function DashboardTab({
         const name = String(it.productName || "").trim() || "Unknown";
         const qty = n(it.qty);
 
-        const cur = map.get(name) || { productName: name, qty: 0, revenue: 0 };
+        const cur = map.get(name) || {
+          productName: name,
+          qty: 0,
+          revenue: 0,
+          profit: 0,
+        };
+
         cur.qty += qty;
 
-        // ✅ only trust backend-computed lineTotal when order is money-ready
-        if (canCountMoney) cur.revenue += n(it.lineTotal);
+        if (canCountMoney) {
+          cur.revenue += n(it.lineTotal);
+          cur.profit += getItemProfit(it);
+        }
 
         map.set(name, cur);
       }
@@ -253,20 +318,21 @@ export default function DashboardTab({
         productName: x.productName,
         qty: x.qty,
         revenue: x.revenue,
+        profit: x.profit,
       }))
       .sort((a, b) => b.revenue - a.revenue);
-  }, [filteredOrders]);
+  }, [filteredOrders, productCostMaps]);
 
   const topProductsByQty = useMemo(
     () => [...topProducts].sort((a, b) => b.qty - a.qty).slice(0, 10),
     [topProducts],
   );
+
   const topProductsByRevenue = useMemo(
     () => [...topProducts].slice(0, 10),
     [topProducts],
   );
 
-  // Top customers ✅ spend only from backend totals, only when moneyReady(order)
   const topCustomers = useMemo(() => {
     const map = new Map<
       string,
@@ -275,40 +341,51 @@ export default function DashboardTab({
         customerPhone: string;
         orders: number;
         spend: number;
+        profit: number;
       }
     >();
 
     for (const o of filteredOrders) {
-      const key = `${String(o.customerName || "").trim()}|${String(
-        o.customerPhone || "",
-      ).trim()}`;
+      const phone = String(o.customerPhone || "").trim() || "No phone";
+      const name = String(o.customerName || "Unknown").trim() || "Unknown";
 
-      const cur = map.get(key) || {
-        customerName: String(o.customerName || "Unknown"),
-        customerPhone: String(o.customerPhone || ""),
+      const cur = map.get(phone) || {
+        customerName: name,
+        customerPhone: phone,
         orders: 0,
         spend: 0,
+        profit: 0,
       };
 
       cur.orders += 1;
 
-      // ✅ only count spend if order is money-ready
-      if (moneyReady(o)) cur.spend += n(o.total);
+      if (!cur.customerName || cur.customerName === "Unknown") {
+        cur.customerName = name;
+      }
 
-      map.set(key, cur);
+      if (moneyReady(o)) {
+        cur.spend += n(o.total);
+        cur.profit += (o.items || []).reduce(
+          (sum, it) => sum + getItemProfit(it),
+          0,
+        );
+      }
+
+      map.set(phone, cur);
     }
 
     return Array.from(map.values())
       .map((x) => ({
-        key: `${x.customerName}|${x.customerPhone}`,
+        key: x.customerPhone,
         customerName: x.customerName,
         customerPhone: x.customerPhone,
         orders: x.orders,
         spend: x.spend,
+        profit: x.profit,
       }))
       .sort((a, b) => b.spend - a.spend)
       .slice(0, 10);
-  }, [filteredOrders]);
+  }, [filteredOrders, productCostMaps]);
 
   const topProductCols: ColumnsType<TopProductRow> = [
     { title: "Product", dataIndex: "productName", key: "productName" },
@@ -324,6 +401,13 @@ export default function DashboardTab({
       dataIndex: "revenue",
       key: "revenue",
       width: 170,
+      render: (v) => money(n(v)),
+    },
+    {
+      title: "Profit",
+      dataIndex: "profit",
+      key: "profit",
+      width: 140,
       render: (v) => money(n(v)),
     },
   ];
@@ -344,31 +428,39 @@ export default function DashboardTab({
       width: 170,
       render: (v) => money(n(v)),
     },
+    {
+      title: "Profit",
+      dataIndex: "profit",
+      key: "profit",
+      width: 140,
+      render: (v) => money(n(v)),
+    },
   ];
 
-  // Quick range presets
   function setPreset(preset: "7" | "30" | "this_month" | "all") {
     if (preset === "all") {
       setRange([null, null]);
       return;
     }
-    if (preset === "7")
+    if (preset === "7") {
       setRange([
         dayjs().subtract(7, "day").startOf("day"),
         dayjs().endOf("day"),
       ]);
-    if (preset === "30")
+    }
+    if (preset === "30") {
       setRange([
         dayjs().subtract(30, "day").startOf("day"),
         dayjs().endOf("day"),
       ]);
-    if (preset === "this_month")
+    }
+    if (preset === "this_month") {
       setRange([dayjs().startOf("month"), dayjs().endOf("day")]);
+    }
   }
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      {/* Filters */}
       <Card className="aca-card">
         <Row gutter={[12, 12]} align="middle">
           <Col xs={24} md={10}>
@@ -427,7 +519,6 @@ export default function DashboardTab({
         </Row>
       </Card>
 
-      {/* KPI Row */}
       <Row gutter={[12, 12]}>
         <Col xs={24} sm={12} lg={6}>
           <Card className="aca-card" loading={loading}>
@@ -437,6 +528,15 @@ export default function DashboardTab({
             />
             <div style={{ marginTop: 6, opacity: 0.75, fontSize: 12 }}>
               Uses backend totals only after kg weights are complete
+            </div>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card className="aca-card" loading={loading}>
+            <Statistic title="Profit (estimated)" value={money(kpis.profit)} />
+            <div style={{ marginTop: 6, opacity: 0.75, fontSize: 12 }}>
+              Based on current product cost prices
             </div>
           </Card>
         </Col>
@@ -462,7 +562,9 @@ export default function DashboardTab({
             </div>
           </Card>
         </Col>
+      </Row>
 
+      <Row gutter={[12, 12]}>
         <Col xs={24} sm={12} lg={6}>
           <Card className="aca-card" loading={loading}>
             <Statistic
@@ -471,9 +573,7 @@ export default function DashboardTab({
             />
           </Card>
         </Col>
-      </Row>
 
-      <Row gutter={[12, 12]}>
         <Col xs={24} sm={12} lg={6}>
           <Card className="aca-card" loading={loading}>
             <Statistic
@@ -495,7 +595,7 @@ export default function DashboardTab({
           </Card>
         </Col>
 
-        <Col xs={24} sm={12} lg={12}>
+        <Col xs={24} sm={12} lg={6}>
           <Card className="aca-card" loading={loading}>
             <Space wrap>
               {["PROCESSING", "PACKED", "SHIPPING", "DELIVERED"].map((s) => (
@@ -508,7 +608,6 @@ export default function DashboardTab({
         </Col>
       </Row>
 
-      {/* Charts */}
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={14}>
           <Card
@@ -531,6 +630,13 @@ export default function DashboardTab({
                     type="monotone"
                     dataKey="revenue"
                     name="Revenue (finalized)"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="profit"
+                    name="Profit"
                     strokeWidth={2}
                     dot={false}
                   />
@@ -564,7 +670,6 @@ export default function DashboardTab({
         </Col>
       </Row>
 
-      {/* Best sellers + customers */}
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={12}>
           <Card
@@ -603,7 +708,7 @@ export default function DashboardTab({
         <Col xs={24}>
           <Card
             className="aca-card"
-            title="Top customers (finalized spend)"
+            title="Top customers (grouped by phone, finalized spend)"
             loading={loading}
           >
             <Table

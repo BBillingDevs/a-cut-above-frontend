@@ -33,6 +33,7 @@ type ProductForm = {
   unit: string;
   retailPrice: number;
   wholesalePrice: number;
+  costPrice: number;
   stockQty: number;
   isActive: boolean;
   categoryId: string | null;
@@ -135,6 +136,7 @@ export default function ProductsTab({
       stockQty: 0,
       retailPrice: 0,
       wholesalePrice: 0,
+      costPrice: 0,
       categoryId: null,
       name: "",
       description: "",
@@ -156,6 +158,7 @@ export default function ProductsTab({
       unit: p.unit,
       retailPrice: Number(p.retailPrice),
       wholesalePrice: Number(p.wholesalePrice),
+      costPrice: Number((p as any).costPrice ?? 0),
       stockQty: p.stockQty,
       isActive: p.isActive,
       categoryId: p.categoryId ?? null,
@@ -194,6 +197,7 @@ export default function ProductsTab({
         unit: p.unit,
         retailPrice: Number(p.retailPrice),
         wholesalePrice: Number(p.wholesalePrice),
+        costPrice: Number((p as any).costPrice ?? 0),
         stockQty: p.stockQty,
         isActive: true,
         categoryId: p.categoryId ?? null,
@@ -261,12 +265,14 @@ export default function ProductsTab({
       values.avgWeightValue ?? null,
       values.avgWeightUnit ?? "g",
     );
+
     const payload = {
       name: values.name,
       description: values.description ?? "",
       unit: values.unit,
       retailPrice: values.retailPrice,
       wholesalePrice: values.wholesalePrice,
+      costPrice: values.costPrice,
       stockQty: values.stockQty,
       isActive: values.isActive ?? true,
       categoryId: values.categoryId ?? null,
@@ -292,6 +298,7 @@ export default function ProductsTab({
       fd.append("unit", payload.unit);
       fd.append("retailPrice", String(payload.retailPrice));
       fd.append("wholesalePrice", String(payload.wholesalePrice));
+      fd.append("costPrice", String(payload.costPrice));
       fd.append("stockQty", String(payload.stockQty));
       fd.append("isActive", String(payload.isActive));
       fd.append("categoryId", payload.categoryId ?? "");
@@ -428,6 +435,13 @@ export default function ProductsTab({
       key: "wholesalePrice",
       render: (v: any) => `$${Number(v).toFixed(2)}`,
       width: 120,
+    },
+    {
+      title: "Cost",
+      dataIndex: "costPrice",
+      key: "costPrice",
+      render: (v: any) => `$${Number(v ?? 0).toFixed(2)}`,
+      width: 110,
     },
     { title: "Stock", dataIndex: "stockQty", key: "stockQty", width: 90 },
     {
@@ -667,9 +681,11 @@ export default function ProductsTab({
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
+
           <Form.Item name="cutType" label="Cut type (optional)">
             <Input placeholder="e.g. Economy, Super, Prime..." />
           </Form.Item>
+
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={2} />
           </Form.Item>
@@ -716,6 +732,7 @@ export default function ProductsTab({
           >
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
+
           <Form.Item
             name="wholesalePrice"
             label="Wholesale price"
@@ -723,6 +740,15 @@ export default function ProductsTab({
           >
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
+
+          <Form.Item
+            name="costPrice"
+            label="Cost price"
+            rules={[{ required: true }]}
+          >
+            <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+
           <Form.Item
             name="stockQty"
             label="Stock quantity"
