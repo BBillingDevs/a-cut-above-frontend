@@ -114,7 +114,7 @@ export default function ShopPage() {
   const [products, setProducts] = useState([] as PricedProduct[]);
   const [loading, setLoading] = useState(false);
   const [windowState, setWindowState] = useState({
-    open: false,
+    open: true,
   } as WindowState);
   const [qtyMap, setQtyMap] = useState({} as Record<string, number>);
   const [activeCat, setActiveCat] = useState("all");
