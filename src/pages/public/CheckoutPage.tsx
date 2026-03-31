@@ -5,6 +5,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Divider,
   Form,
   Input,
@@ -29,7 +30,6 @@ import { api, RAILWAY_BASE } from "../../api/client";
 import { useCart } from "../../context/CartContext";
 
 const { Title, Text } = Typography;
-const ACK_TEXT = "I acknowledge the above";
 const MUTARE_MINIMUM = 50;
 
 type WindowState = {
@@ -107,7 +107,7 @@ export default function CheckoutPage() {
   const [stockChecking, setStockChecking] = useState(false);
 
   const [ackOpen, setAckOpen] = useState(false);
-  const [ackValue, setAckValue] = useState("");
+  const [ackChecked, setAckChecked] = useState(false);
   const [pendingValues, setPendingValues] = useState<any | null>(null);
 
   async function loadWindow() {
@@ -288,9 +288,20 @@ export default function CheckoutPage() {
 
       clear();
       form.resetFields();
-      setAckValue("");
+      setAckChecked(false);
       setPendingValues(null);
-      navigate("/track", { state: { successOrderNo: res.data.orderNo } });
+
+      navigate("/track", {
+        replace: true,
+        state: {
+          successOrderNo: res.data?.orderNo,
+          successDeliveryDate:
+            res.data?.deliverySchedule?.deliveryDate ??
+            res.data?.deliveryDate ??
+            deliveryInfo.nextDelivery?.toISOString() ??
+            null,
+        },
+      });
     } catch (e: any) {
       if (e?.response?.status === 409) {
         const issues = (e?.response?.data?.issues || []) as StockIssue[];
@@ -322,12 +333,12 @@ export default function CheckoutPage() {
     }
 
     setPendingValues(values);
-    setAckValue("");
+    setAckChecked(false);
     setAckOpen(true);
   }
 
   async function handleAckOk() {
-    if (ackValue.trim() !== ACK_TEXT) return;
+    if (!ackChecked) return;
     setAckOpen(false);
     if (pendingValues) {
       await doSubmit(pendingValues);
@@ -368,7 +379,6 @@ export default function CheckoutPage() {
       ) : null}
 
       <div className="aca-checkoutGrid">
-        {/* LEFT */}
         <div style={{ display: "grid", gap: 16 }}>
           <Card className="aca-card">
             <Title level={3} style={{ marginTop: 0 }}>
@@ -399,8 +409,9 @@ export default function CheckoutPage() {
                     { required: true, message: "Please enter your name" },
                     {
                       validator: (_, value) => {
-                        if (String(value || "").trim().length >= 2)
+                        if (String(value || "").trim().length >= 2) {
                           return Promise.resolve();
+                        }
                         return Promise.reject(
                           "Name must be at least 2 characters",
                         );
@@ -426,8 +437,9 @@ export default function CheckoutPage() {
                     },
                     {
                       validator: (_, value) => {
-                        if (String(value || "").trim().length >= 5)
+                        if (String(value || "").trim().length >= 5) {
                           return Promise.resolve();
+                        }
                         return Promise.reject(
                           "Please enter a valid phone number",
                         );
@@ -458,6 +470,7 @@ export default function CheckoutPage() {
               >
                 <Input placeholder="name@example.com" />
               </Form.Item>
+
               {isMutare ? (
                 <Alert
                   type={mutareMinimumMet ? "info" : "error"}
@@ -479,6 +492,7 @@ export default function CheckoutPage() {
                   }
                 />
               ) : null}
+
               <Form.Item
                 name="dropoffLocationId"
                 label={
@@ -638,7 +652,6 @@ export default function CheckoutPage() {
           </Card>
         </div>
 
-        {/* RIGHT */}
         <aside>
           <div style={{ position: "sticky", top: 120 }}>
             <Card className="aca-card">
@@ -914,13 +927,13 @@ export default function CheckoutPage() {
         onCancel={() => {
           setAckOpen(false);
           setPendingValues(null);
-          setAckValue("");
+          setAckChecked(false);
         }}
         onOk={handleAckOk}
         okText="Confirm and place order"
         confirmLoading={submitting}
         okButtonProps={{
-          disabled: ackValue.trim() !== ACK_TEXT,
+          disabled: !ackChecked,
         }}
       >
         <div style={{ display: "grid", gap: 12 }}>
@@ -944,22 +957,22 @@ export default function CheckoutPage() {
                     {MUTARE_MINIMUM.toFixed(2)} and a valid personal address.
                   </div>
                 ) : null}
+                {deliveryInfo.nextDelivery ? (
+                  <div>
+                    Your estimated delivery date is{" "}
+                    <b>{deliveryInfo.nextDelivery.toLocaleDateString()}</b>.
+                  </div>
+                ) : null}
               </div>
             }
           />
 
-          <div>
-            <Text strong>
-              Type exactly:{" "}
-              <span style={{ userSelect: "all" }}>{ACK_TEXT}</span>
-            </Text>
-          </div>
-
-          <Input
-            value={ackValue}
-            onChange={(e) => setAckValue(e.target.value)}
-            placeholder={ACK_TEXT}
-          />
+          <Checkbox
+            checked={ackChecked}
+            onChange={(e) => setAckChecked(e.target.checked)}
+          >
+            I acknowledge the above
+          </Checkbox>
         </div>
       </Modal>
     </div>

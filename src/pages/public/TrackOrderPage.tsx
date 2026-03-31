@@ -1,4 +1,3 @@
-// src/pages/public/TrackOrderPage.tsx
 import React, { useMemo, useState } from "react";
 import {
   Button,
@@ -10,6 +9,7 @@ import {
   message,
   Alert,
 } from "antd";
+import { useLocation } from "react-router-dom";
 import { api } from "../../api/client";
 import "../../styles/app.scss";
 import type { TrackedOrder } from "../../types";
@@ -47,17 +47,24 @@ function money(n: any) {
   return `$${x.toFixed(2)}`;
 }
 
+function formatDate(value: any) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString();
+}
+
 export default function TrackOrderPage() {
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState(null as TrackedOrder | null);
   const [form] = Form.useForm();
+  const location = useLocation();
 
-  // Read success order number passed via navigation state (from CheckoutPage)
-  const locationState = (window.history.state?.usr ?? {}) as Record<
-    string,
-    any
-  >;
+  const locationState = (location.state ?? {}) as Record<string, any>;
   const successOrderNo = locationState?.successOrderNo as string | undefined;
+  const successDeliveryDate = locationState?.successDeliveryDate as
+    | string
+    | undefined;
 
   async function track(values: TrackForm) {
     setLoading(true);
@@ -74,6 +81,19 @@ export default function TrackOrderPage() {
 
   const step = useMemo(() => (order ? statusToStep(order.status) : 1), [order]);
 
+  const trackedDeliveryDate = useMemo(() => {
+    const raw =
+      (order as any)?.deliverySchedule?.deliveryDate ??
+      (order as any)?.deliveryDate ??
+      null;
+    return formatDate(raw);
+  }, [order]);
+
+  const successDeliveryDateLabel = useMemo(
+    () => formatDate(successDeliveryDate),
+    [successDeliveryDate],
+  );
+
   return (
     <div className="aca-page aca-tracking">
       <div className="aca-tracking__header">
@@ -87,7 +107,6 @@ export default function TrackOrderPage() {
         </div>
       </div>
 
-      {/* ── Success banner shown after checkout ── */}
       {successOrderNo ? (
         <Alert
           type="success"
@@ -100,11 +119,16 @@ export default function TrackOrderPage() {
             </span>
           }
           description={
-            <div style={{ marginTop: 4 }}>
+            <div style={{ marginTop: 4, display: "grid", gap: 6 }}>
               <Text strong style={{ color: "#237804" }}>
                 Please write down your order number — you will need it to track
                 your order below.
               </Text>
+              {successDeliveryDateLabel ? (
+                <Text>
+                  Estimated delivery date: <b>{successDeliveryDateLabel}</b>
+                </Text>
+              ) : null}
             </div>
           }
         />
@@ -208,6 +232,14 @@ export default function TrackOrderPage() {
                   {new Date(order.createdAt).toLocaleString()}
                 </div>
               </div>
+              {trackedDeliveryDate ? (
+                <div>
+                  <Text type="secondary">Delivery Date</Text>
+                  <div className="aca-orderMeta__val">
+                    {trackedDeliveryDate}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </Card>
 
