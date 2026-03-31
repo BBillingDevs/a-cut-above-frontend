@@ -42,6 +42,13 @@ type ProductForm = {
   avgWeightUnit: "g" | "kg";
 };
 
+type WasteForm = {
+  packsWasted: number;
+  weightValue?: number | null;
+  weightUnit: "g" | "kg";
+  reason?: string;
+};
+
 function resolveImageUrl(url?: string | null): string | null {
   if (!url) return null;
   if (url.startsWith("/uploads/")) return `${RAILWAY_BASE}${url}`;
@@ -74,6 +81,10 @@ function fromGrams(grams: number | null | undefined): {
   return { value: grams, unit: "g" };
 }
 
+function money(v: number | string | null | undefined) {
+  return `$${Number(v ?? 0).toFixed(2)}`;
+}
+
 export default function ProductsTab({
   loading,
   products,
@@ -90,6 +101,11 @@ export default function ProductsTab({
     null as AdminProduct | null,
   );
   const [productForm] = Form.useForm();
+
+  const [wasteModalOpen, setWasteModalOpen] = useState(false);
+  const [wasteProduct, setWasteProduct] = useState(null as AdminProduct | null);
+  const [wasteForm] = Form.useForm();
+
   const [groupByCategory, setGroupByCategory] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState(null as File | null);
@@ -151,7 +167,7 @@ export default function ProductsTab({
   function openEditProduct(p: AdminProduct) {
     setEditingProduct(p);
     productForm.resetFields();
-    const { value, unit } = fromGrams(p.avgWeightG ?? null);
+    const { value, unit } = fromGrams((p as any).avgWeightG ?? null);
     productForm.setFieldsValue({
       name: p.name,
       description: p.description || "",
@@ -162,12 +178,24 @@ export default function ProductsTab({
       stockQty: p.stockQty,
       isActive: p.isActive,
       categoryId: p.categoryId ?? null,
-      cutType: p.cutType || "",
+      cutType: (p as any).cutType || "",
       avgWeightValue: value,
       avgWeightUnit: unit,
     });
     resetPendingImage();
     setProductModalOpen(true);
+  }
+
+  function openWasteModal(p: AdminProduct) {
+    setWasteProduct(p);
+    wasteForm.resetFields();
+    wasteForm.setFieldsValue({
+      packsWasted: 0,
+      weightValue: null,
+      weightUnit: "g",
+      reason: "",
+    });
+    setWasteModalOpen(true);
   }
 
   async function deleteOrArchiveProduct(p: AdminProduct) {
@@ -201,8 +229,8 @@ export default function ProductsTab({
         stockQty: p.stockQty,
         isActive: true,
         categoryId: p.categoryId ?? null,
-        cutType: p.cutType ?? "",
-        avgWeightG: p.avgWeightG ?? null,
+        cutType: (p as any).cutType ?? "",
+        avgWeightG: (p as any).avgWeightG ?? null,
       });
       message.success("Product restored to shop");
       onReload();
@@ -219,7 +247,10 @@ export default function ProductsTab({
     const group = products
       .filter((p) => (p.categoryId ?? null) === withinCategoryId)
       .slice()
-      .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0));
+      .sort(
+        (a, b) =>
+          Number((a as any).sortOrder ?? 0) - Number((b as any).sortOrder ?? 0),
+      );
     const idx = group.findIndex((p) => p.id === productId);
     if (idx === -1) return;
     const swapWith = direction === "up" ? idx - 1 : idx + 1;
@@ -283,8 +314,9 @@ export default function ProductsTab({
     try {
       if (editingProduct) {
         await api.put(`/api/admin/products/${editingProduct.id}`, payload);
-        if (pendingImageFile)
+        if (pendingImageFile) {
           await uploadImage(editingProduct.id, pendingImageFile);
+        }
         message.success("Product updated");
         setProductModalOpen(false);
         resetPendingImage();
@@ -323,6 +355,32 @@ export default function ProductsTab({
     }
   }
 
+  async function saveWaste() {
+    if (!wasteProduct) return;
+
+    const values: WasteForm = await wasteForm.validateFields();
+    const weightG = toGrams(
+      values.weightValue ?? null,
+      values.weightUnit ?? "g",
+    );
+
+    try {
+      await api.post(`/api/admin/products/${wasteProduct.id}/waste`, {
+        packsWasted: Number(values.packsWasted ?? 0),
+        weightG,
+        reason: (values.reason || "").trim(),
+      });
+
+      message.success("Waste recorded");
+      setWasteModalOpen(false);
+      setWasteProduct(null);
+      wasteForm.resetFields();
+      onReload();
+    } catch (e: any) {
+      message.error(e?.response?.data?.error || "Failed to record waste");
+    }
+  }
+
   const grouped = useMemo(() => {
     const map = new Map<string, AdminProduct[]>();
     const keyOf = (p: AdminProduct) => p.category?.name || "Unassigned";
@@ -336,11 +394,46 @@ export default function ProductsTab({
         k,
         list
           .slice()
-          .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0)),
+          .sort(
+            (a, b) =>
+              Number((a as any).sortOrder ?? 0) -
+              Number((b as any).sortOrder ?? 0),
+          ),
       );
     }
     return [...map.entries()];
   }, [visibleProducts]);
+
+  const wastePreview = useMemo(() => {
+    if (!wasteProduct) return { stockAfter: 0, estimatedValue: 0 };
+
+    const packsWasted = Number(wasteForm.getFieldValue("packsWasted") ?? 0);
+    const weightValue = wasteForm.getFieldValue("weightValue");
+    const weightUnit = (wasteForm.getFieldValue("weightUnit") ?? "g") as
+      | "g"
+      | "kg";
+    const weightG = toGrams(weightValue ?? null, weightUnit);
+
+    let estimatedValue = 0;
+    const costPrice = Number((wasteProduct as any).costPrice ?? 0);
+
+    if (packsWasted > 0) {
+      estimatedValue += packsWasted * costPrice;
+    }
+
+    if (weightG && weightG > 0) {
+      if (wasteProduct.unit === "kg") {
+        estimatedValue += (weightG / 1000) * costPrice;
+      } else if (wasteProduct.unit === "g") {
+        estimatedValue += weightG * costPrice;
+      }
+    }
+
+    return {
+      stockAfter: Math.max(0, Number(wasteProduct.stockQty ?? 0) - packsWasted),
+      estimatedValue,
+    };
+  }, [wasteForm, wasteProduct]);
 
   const baseColumns = [
     {
@@ -361,7 +454,7 @@ export default function ProductsTab({
             return false;
           },
         };
-        const imgSrc = resolveImageUrl(p.imageUrl);
+        const imgSrc = resolveImageUrl((p as any).imageUrl);
         return (
           <div style={{ display: "grid", gap: 6 }}>
             <div
@@ -392,7 +485,7 @@ export default function ProductsTab({
                   Upload
                 </Button>
               </Upload>
-              {p.imageUrl ? (
+              {(p as any).imageUrl ? (
                 <Button size="small" danger onClick={() => removeImage(p.id)}>
                   Remove
                 </Button>
@@ -445,6 +538,27 @@ export default function ProductsTab({
     },
     { title: "Stock", dataIndex: "stockQty", key: "stockQty", width: 90 },
     {
+      title: "Wasted Packs",
+      key: "totalPacksWasted",
+      width: 120,
+      render: (_: any, p: AdminProduct) =>
+        Number((p as any).totalPacksWasted ?? 0),
+    },
+    {
+      title: "Wasted Weight",
+      key: "totalWeightWastedG",
+      width: 130,
+      render: (_: any, p: AdminProduct) =>
+        fmtGrams(Number((p as any).totalWeightWastedG ?? 0)),
+    },
+    {
+      title: "Waste Value",
+      key: "totalWasteValue",
+      width: 130,
+      render: (_: any, p: AdminProduct) =>
+        money((p as any).totalWasteValue ?? 0),
+    },
+    {
       title: "Category",
       key: "category",
       width: 180,
@@ -483,11 +597,11 @@ export default function ProductsTab({
     {
       title: "",
       key: "actions",
-      width: 220,
+      width: 320,
       render: (_: any, p: AdminProduct) => {
         if (showArchived) {
           return (
-            <Space>
+            <Space wrap>
               <Button onClick={() => openEditProduct(p)}>Edit</Button>
               <Popconfirm
                 title="Restore this product to the shop?"
@@ -499,14 +613,17 @@ export default function ProductsTab({
             </Space>
           );
         }
-        const hasOrders = Number(p._count?.orderItems ?? 0) > 0;
+
+        const hasOrders = Number((p as any)._count?.orderItems ?? 0) > 0;
         const confirmTitle = hasOrders
           ? "This product has previous orders. It will be archived (hidden from shop)."
           : "Permanently delete this product? This cannot be undone.";
         const btnLabel = hasOrders ? "Archive" : "Delete";
+
         return (
-          <Space>
+          <Space wrap>
             <Button onClick={() => openEditProduct(p)}>Edit</Button>
+            <Button onClick={() => openWasteModal(p)}>Waste</Button>
             <Popconfirm
               title={confirmTitle}
               okText={btnLabel}
@@ -545,7 +662,7 @@ export default function ProductsTab({
   return (
     <Card
       extra={
-        <Space>
+        <Space wrap>
           <Space>
             <Text type="secondary">Group by category</Text>
             <Switch checked={groupByCategory} onChange={setGroupByCategory} />
@@ -570,9 +687,12 @@ export default function ProductsTab({
           dataSource={visibleProducts
             .slice()
             .sort(
-              (a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
+              (a, b) =>
+                Number((a as any).sortOrder ?? 0) -
+                Number((b as any).sortOrder ?? 0),
             )}
           columns={baseColumns}
+          scroll={{ x: 1800 }}
         />
       ) : (
         <div style={{ display: "grid", gap: 14 }}>
@@ -589,6 +709,7 @@ export default function ProductsTab({
                   dataSource={list}
                   columns={baseColumns}
                   pagination={false}
+                  scroll={{ x: 1800 }}
                 />
               </Card>
             ))
@@ -633,7 +754,9 @@ export default function ProductsTab({
                   />
                 ) : editingProduct?.imageUrl ? (
                   (() => {
-                    const src = resolveImageUrl(editingProduct.imageUrl);
+                    const src = resolveImageUrl(
+                      (editingProduct as any).imageUrl,
+                    );
                     return src ? (
                       <img
                         src={src}
@@ -763,8 +886,9 @@ export default function ProductsTab({
               placeholder="Select category"
               options={categoryOptions}
               onChange={(v) => {
-                if (v === "__none__")
+                if (v === "__none__") {
                   productForm.setFieldsValue({ categoryId: null });
+                }
               }}
             />
           </Form.Item>
@@ -772,6 +896,106 @@ export default function ProductsTab({
           <Form.Item name="isActive" label="Active" valuePropName="checked">
             <Switch />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={
+          wasteProduct
+            ? `Waste Product — ${wasteProduct.name}`
+            : "Waste Product"
+        }
+        open={wasteModalOpen}
+        onCancel={() => {
+          setWasteModalOpen(false);
+          setWasteProduct(null);
+          wasteForm.resetFields();
+        }}
+        onOk={saveWaste}
+        okText="Record Waste"
+      >
+        <Form form={wasteForm} layout="vertical">
+          {wasteProduct ? (
+            <Card
+              size="small"
+              style={{ marginBottom: 16, background: "#fafafa" }}
+            >
+              <div style={{ display: "grid", gap: 6 }}>
+                <Text>
+                  <strong>Current stock:</strong> {wasteProduct.stockQty}
+                </Text>
+                <Text>
+                  <strong>Unit:</strong> {wasteProduct.unit}
+                </Text>
+                <Text>
+                  <strong>Cost price:</strong>{" "}
+                  {money((wasteProduct as any).costPrice)}
+                </Text>
+                <Text>
+                  <strong>Total wasted so far:</strong>{" "}
+                  {Number((wasteProduct as any).totalPacksWasted ?? 0)} packs /{" "}
+                  {fmtGrams(
+                    Number((wasteProduct as any).totalWeightWastedG ?? 0),
+                  )}{" "}
+                  / {money((wasteProduct as any).totalWasteValue ?? 0)}
+                </Text>
+              </div>
+            </Card>
+          ) : null}
+
+          <Form.Item
+            name="packsWasted"
+            label="Packs wasted"
+            rules={[{ required: true, message: "Enter packs wasted" }]}
+          >
+            <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+
+          <Form.Item
+            label="Total weight wasted (optional)"
+            extra="Useful when the wasted amount also has a measured total weight."
+          >
+            <Space.Compact style={{ width: "100%" }}>
+              <Form.Item name="weightValue" noStyle>
+                <InputNumber
+                  min={0}
+                  step={0.1}
+                  placeholder="e.g. 750"
+                  style={{ width: "100%" }}
+                />
+              </Form.Item>
+              <Form.Item name="weightUnit" noStyle initialValue="g">
+                <Select
+                  style={{ width: 80 }}
+                  options={[
+                    { value: "g", label: "g" },
+                    { value: "kg", label: "kg" },
+                  ]}
+                />
+              </Form.Item>
+            </Space.Compact>
+          </Form.Item>
+
+          <Form.Item name="reason" label="Reason (optional)">
+            <Input.TextArea
+              rows={3}
+              placeholder="e.g. damaged, spoiled, trimming loss..."
+            />
+          </Form.Item>
+
+          {wasteProduct ? (
+            <Card size="small" style={{ background: "#fafafa" }}>
+              <div style={{ display: "grid", gap: 6 }}>
+                <Text>
+                  <strong>Stock after waste:</strong> {wastePreview.stockAfter}
+                </Text>
+                <Text>
+                  <strong>Estimated waste value:</strong>{" "}
+                  {money(wastePreview.estimatedValue)}
+                </Text>
+              </div>
+            </Card>
+          ) : null}
         </Form>
       </Modal>
     </Card>

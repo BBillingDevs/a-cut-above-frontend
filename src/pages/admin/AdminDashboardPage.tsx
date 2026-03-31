@@ -13,6 +13,7 @@ import DropoffLocationsTab from "../../components/DropoffLocationsTab";
 import DashboardTab from "../../components/DashboardTab";
 import UsersTab from "../../components/UsersTab";
 import CarcassWeightsTab from "../../components/CarcassWeightsTab";
+import WasteManagementTab from "../../components/WasteManagementTab";
 
 export type AdminCategory = {
   id: string;
@@ -21,6 +22,17 @@ export type AdminCategory = {
   iconKey: string;
   sortOrder: number;
   isActive: boolean;
+};
+
+export type AdminProductWaste = {
+  id: string;
+  qtyWasted: number;
+  totalWeightG?: number | null;
+  costValueLost: string | number;
+  retailValueLost?: string | number;
+  wholesaleValueLost?: string | number;
+  notes?: string | null;
+  createdAt: string;
 };
 
 export type AdminProduct = {
@@ -39,7 +51,14 @@ export type AdminProduct = {
   cutType?: string | null;
   avgWeightG?: number | null;
   category?: AdminCategory | null;
-  _count?: { orderItems: number };
+  _count?: {
+    orderItems: number;
+    wastes?: number;
+  };
+  wastes?: AdminProductWaste[];
+  totalPacksWasted?: number;
+  totalWeightWastedG?: number;
+  totalWasteValue?: string | number;
 };
 
 export type AdminOrderItem = {
@@ -134,6 +153,10 @@ function hasPermission(
   return permissions.includes("admin.full") || permissions.includes(needed);
 }
 
+function toNumber(v: string | number | null | undefined) {
+  return Number(v ?? 0);
+}
+
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
 
@@ -218,6 +241,10 @@ export default function AdminDashboardPage() {
     [windows],
   );
 
+  const totalWasteValue = useMemo(() => {
+    return products.reduce((sum, p) => sum + toNumber(p.totalWasteValue), 0);
+  }, [products]);
+
   const logout = useCallback(async () => {
     try {
       await api.post("/api/admin/auth/logout");
@@ -247,6 +274,8 @@ export default function AdminDashboardPage() {
   const canViewOrders = hasPermission(myPermissions, "orders.view");
   const canViewCategories = hasPermission(myPermissions, "categories.view");
   const canViewProducts = hasPermission(myPermissions, "products.view");
+  const canManageProducts = hasPermission(myPermissions, "products.manage");
+  const canViewWaste = canViewProducts || canManageProducts;
   const canViewDropoffs = hasPermission(myPermissions, "dropoffs.view");
   const canViewWindows = hasPermission(myPermissions, "windows.view");
   const canViewUsers = hasPermission(myPermissions, "users.view");
@@ -265,11 +294,13 @@ export default function AdminDashboardPage() {
               ? "dashboard"
               : canViewProducts
                 ? "products"
-                : canViewUsers
-                  ? "users"
-                  : canViewCarcassWeights
-                    ? "carcass-weights"
-                    : "dashboard"
+                : canViewWaste
+                  ? "waste"
+                  : canViewUsers
+                    ? "users"
+                    : canViewCarcassWeights
+                      ? "carcass-weights"
+                      : "dashboard"
         }
         items={[
           ...(canViewDashboard
@@ -283,6 +314,8 @@ export default function AdminDashboardPage() {
                     orders={orders}
                     products={products}
                     windows={windows}
+                    carcassWeights={carcassWeights}
+                    totalWasteValue={totalWasteValue}
                   />
                 ),
               },
@@ -332,6 +365,22 @@ export default function AdminDashboardPage() {
                     loading={loading}
                     products={products}
                     categories={categories}
+                    onReload={loadAll}
+                  />
+                ),
+              },
+            ]
+            : []),
+
+          ...(canViewWaste
+            ? [
+              {
+                key: "waste",
+                label: "Waste",
+                children: (
+                  <WasteManagementTab
+                    loading={loading}
+                    products={products}
                     onReload={loadAll}
                   />
                 ),

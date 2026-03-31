@@ -95,12 +95,14 @@ export default function DashboardTab({
   products,
   windows,
   carcassWeights,
+  totalWasteValue = 0,
 }: {
   loading: boolean;
   orders: AdminOrder[];
   products: AdminProduct[];
   windows: AdminWindow[];
   carcassWeights: CarcassWeightRecord[];
+  totalWasteValue?: number;
 }) {
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>([
     dayjs().subtract(30, "day").startOf("day"),
@@ -596,6 +598,18 @@ export default function DashboardTab({
         <Col xs={24} sm={12} lg={6}>
           <Card className="aca-card" loading={loading}>
             <Statistic
+              title="Total Value of Waste"
+              value={money(n(totalWasteValue))}
+            />
+            <div style={{ marginTop: 6, opacity: 0.75, fontSize: 12 }}>
+              Based on product cost price and recorded wasted packs/weight
+            </div>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card className="aca-card" loading={loading}>
+            <Statistic
               title="Avg % Weight Loss"
               value={carcassStats.avgLossPct}
               precision={1}
@@ -617,7 +631,9 @@ export default function DashboardTab({
             />
           </Card>
         </Col>
+      </Row>
 
+      <Row gutter={[12, 12]}>
         <Col xs={24} sm={12} lg={6}>
           <Card className="aca-card" loading={loading}>
             <Statistic

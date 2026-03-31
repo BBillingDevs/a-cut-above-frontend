@@ -9,6 +9,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Modal,
   Space,
   Typography,
   Select,
@@ -28,6 +29,8 @@ import { api, RAILWAY_BASE } from "../../api/client";
 import { useCart } from "../../context/CartContext";
 
 const { Title, Text } = Typography;
+const ACK_TEXT = "I acknowledge the above";
+const MUTARE_MINIMUM = 50;
 
 type WindowState = {
   open: boolean;
@@ -64,10 +67,26 @@ function asInt(v: any, fallback: number) {
   return Math.max(1, Math.floor(n));
 }
 
+function asMoney(v: any) {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function resolveImageUrl(url?: string | null): string | null {
   if (!url) return null;
   if (url.startsWith("/uploads/")) return `${RAILWAY_BASE}${url}`;
   return null;
+}
+
+function getItemUnitPrice(item: any): number {
+  return asMoney(
+    item?.price ??
+    item?.unitPrice ??
+    item?.product?.price ??
+    item?.product?.unitPrice ??
+    item?.product?.pricePerPack ??
+    0,
+  );
 }
 
 export default function CheckoutPage() {
@@ -86,6 +105,10 @@ export default function CheckoutPage() {
     {} as Record<string, StockIssue>,
   );
   const [stockChecking, setStockChecking] = useState(false);
+
+  const [ackOpen, setAckOpen] = useState(false);
+  const [ackValue, setAckValue] = useState("");
+  const [pendingValues, setPendingValues] = useState<any | null>(null);
 
   async function loadWindow() {
     try {
@@ -142,6 +165,18 @@ export default function CheckoutPage() {
   const selectedDropoff = useMemo(() => {
     return dropoffs.find((d) => d.id === selectedDropoffId) ?? null;
   }, [dropoffs, selectedDropoffId]);
+
+  const isMutare = useMemo(() => {
+    return /mutare/i.test(selectedDropoff?.name || "");
+  }, [selectedDropoff]);
+
+  const cartSubtotal = useMemo(() => {
+    return items.reduce((sum, it) => {
+      const qty = asInt(it.qty, 1);
+      const unitPrice = getItemUnitPrice(it);
+      return sum + qty * unitPrice;
+    }, 0);
+  }, [items]);
 
   const deliveryInfo = useMemo(() => {
     const schedule = selectedDropoff?.nextSchedule ?? null;
@@ -222,11 +257,14 @@ export default function CheckoutPage() {
     return Object.keys(stockIssuesById).length > 0;
   }, [stockIssuesById]);
 
-  async function submit(values: any) {
+  const mutareMinimumMet = !isMutare || cartSubtotal >= MUTARE_MINIMUM;
+
+  async function doSubmit(values: any) {
     const customerName = String(values.customerName || "").trim();
     const customerPhone = String(values.customerPhone || "").trim();
     const customerEmail = String(values.customerEmail || "").trim();
     const dropoffLocationId = String(values.dropoffLocationId || "").trim();
+    const personalAddress = String(values.personalAddress || "").trim();
 
     if (items.length === 0) return;
     if (!windowState.open) return;
@@ -241,6 +279,7 @@ export default function CheckoutPage() {
         customerPhone,
         customerEmail,
         dropoffLocationId,
+        personalAddress: isMutare ? personalAddress : "",
         notes: "",
         items: items.map((i) => ({ productId: i.product.id, qty: i.qty })),
       };
@@ -249,6 +288,8 @@ export default function CheckoutPage() {
 
       clear();
       form.resetFields();
+      setAckValue("");
+      setPendingValues(null);
       navigate("/track", { state: { successOrderNo: res.data.orderNo } });
     } catch (e: any) {
       if (e?.response?.status === 409) {
@@ -261,6 +302,35 @@ export default function CheckoutPage() {
       console.error("Order failed:", e?.response?.data || e);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function submit(values: any) {
+    if (items.length === 0) return;
+    if (!windowState.open) return;
+
+    if (isMutare && cartSubtotal < MUTARE_MINIMUM) {
+      form.setFields([
+        {
+          name: "dropoffLocationId",
+          errors: [
+            `Mutare orders must be at least $${MUTARE_MINIMUM.toFixed(2)}.`,
+          ],
+        },
+      ]);
+      return;
+    }
+
+    setPendingValues(values);
+    setAckValue("");
+    setAckOpen(true);
+  }
+
+  async function handleAckOk() {
+    if (ackValue.trim() !== ACK_TEXT) return;
+    setAckOpen(false);
+    if (pendingValues) {
+      await doSubmit(pendingValues);
     }
   }
 
@@ -310,12 +380,7 @@ export default function CheckoutPage() {
 
             <Divider />
 
-            <Form
-              layout="vertical"
-              form={form}
-              onFinish={submit}
-              onValuesChange={() => {}}
-            >
+            <Form layout="vertical" form={form} onFinish={submit}>
               <div
                 style={{
                   display: "grid",
@@ -379,20 +444,46 @@ export default function CheckoutPage() {
                 name="customerEmail"
                 label={
                   <span style={{ letterSpacing: 1, fontWeight: 800 }}>
-                    EMAIL (OPTIONAL)
+                    EMAIL ADDRESS
                   </span>
                 }
-                rules={[{ type: "email", warningOnly: true }]}
+                rules={[
+                  {
+                    required: true,
+                    message: "Please enter your email address",
+                  },
+                  { type: "email", message: "Please enter a valid email" },
+                ]}
                 normalize={(v) => String(v || "")}
               >
                 <Input placeholder="name@example.com" />
               </Form.Item>
-
+              {isMutare ? (
+                <Alert
+                  type={mutareMinimumMet ? "info" : "error"}
+                  showIcon
+                  message="Mutare delivery requirements"
+                  description={
+                    <div style={{ display: "grid", gap: 4 }}>
+                      <div>
+                        Minimum order value: <b>${MUTARE_MINIMUM.toFixed(2)}</b>
+                      </div>
+                      <div>
+                        Current cart total: <b>${cartSubtotal.toFixed(2)}</b>
+                      </div>
+                      <div>
+                        A personal delivery address is required for Mutare
+                        orders.
+                      </div>
+                    </div>
+                  }
+                />
+              ) : null}
               <Form.Item
                 name="dropoffLocationId"
                 label={
                   <span style={{ letterSpacing: 1, fontWeight: 800 }}>
-                    DROP-OFF LOCATION
+                    DELIVERY LOCATION
                   </span>
                 }
                 rules={[
@@ -422,40 +513,75 @@ export default function CheckoutPage() {
               </Form.Item>
 
               {selectedDropoff ? (
-                deliveryInfo.has ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginTop: 8 }}
-                    message="Next delivery schedule"
-                    description={
-                      <div style={{ display: "grid", gap: 4 }}>
-                        <div>
-                          Order cut-off:{" "}
-                          <b>{deliveryInfo.cutoff!.toLocaleDateString()}</b>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {deliveryInfo.has ? (
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginTop: 8 }}
+                      message="Next delivery schedule"
+                      description={
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <div>
+                            Order cut-off:{" "}
+                            <b>{deliveryInfo.cutoff!.toLocaleDateString()}</b>
+                          </div>
+                          <div>
+                            Delivery date:{" "}
+                            <b>
+                              {deliveryInfo.nextDelivery!.toLocaleDateString()}
+                            </b>
+                          </div>
+                          <div style={{ opacity: 0.8 }}>
+                            Orders placed after the cut-off will go on the next
+                            delivery run.
+                          </div>
                         </div>
-                        <div>
-                          Delivery date:{" "}
-                          <b>
-                            {deliveryInfo.nextDelivery!.toLocaleDateString()}
-                          </b>
-                        </div>
-                        <div style={{ opacity: 0.8 }}>
-                          Orders placed after the cut-off will go on the next
-                          delivery run.
-                        </div>
-                      </div>
-                    }
+                      }
+                    />
+                  ) : (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginTop: 8 }}
+                      message="No upcoming delivery scheduled"
+                      description="Please contact us if you need a delivery date for this location."
+                    />
+                  )}
+                </div>
+              ) : null}
+
+              {isMutare ? (
+                <Form.Item
+                  name="personalAddress"
+                  label={
+                    <span style={{ letterSpacing: 1, fontWeight: 800 }}>
+                      PERSONAL ADDRESS
+                    </span>
+                  }
+                  rules={[
+                    {
+                      required: true,
+                      message: "Please enter your personal address for Mutare",
+                    },
+                    {
+                      validator: (_, value) => {
+                        if (String(value || "").trim().length >= 6) {
+                          return Promise.resolve();
+                        }
+                        return Promise.reject(
+                          "Address must be at least 6 characters",
+                        );
+                      },
+                    },
+                  ]}
+                  normalize={(v) => String(v || "")}
+                >
+                  <Input.TextArea
+                    rows={3}
+                    placeholder="Enter your full personal address"
                   />
-                ) : (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    style={{ marginTop: 8 }}
-                    message="No upcoming delivery scheduled"
-                    description="Please contact us if you need a delivery date for this location."
-                  />
-                )
+                </Form.Item>
               ) : null}
 
               <Divider />
@@ -472,7 +598,10 @@ export default function CheckoutPage() {
                   htmlType="submit"
                   loading={submitting}
                   disabled={
-                    !windowState.open || items.length === 0 || hasBlockingIssues
+                    !windowState.open ||
+                    items.length === 0 ||
+                    hasBlockingIssues ||
+                    !mutareMinimumMet
                   }
                   icon={<LockOutlined />}
                   className="aca-cartBtn"
@@ -495,6 +624,14 @@ export default function CheckoutPage() {
                   >
                     Items marked in red/orange need quantity changes or removal.
                   </div>
+                </div>
+              ) : null}
+
+              {!mutareMinimumMet ? (
+                <div style={{ marginTop: 10 }}>
+                  <Text strong style={{ color: "#d48806" }}>
+                    Mutare orders must be at least ${MUTARE_MINIMUM.toFixed(2)}.
+                  </Text>
                 </div>
               ) : null}
             </Form>
@@ -530,6 +667,13 @@ export default function CheckoutPage() {
 
               <Divider style={{ margin: "12px 0" }} />
 
+              <div style={{ marginBottom: 12 }}>
+                <Text type="secondary">Subtotal</Text>
+                <div style={{ fontSize: 24, fontWeight: 800 }}>
+                  ${cartSubtotal.toFixed(2)}
+                </div>
+              </div>
+
               {items.length === 0 ? (
                 <Text type="secondary">No items yet.</Text>
               ) : (
@@ -541,8 +685,8 @@ export default function CheckoutPage() {
                     const ui = issueUi(issue);
                     const maxIfKnown =
                       issue &&
-                      issue.reason === "INSUFFICIENT" &&
-                      Number(issue.available) > 0
+                        issue.reason === "INSUFFICIENT" &&
+                        Number(issue.available) > 0
                         ? Number(issue.available)
                         : undefined;
                     const disablePlus =
@@ -552,6 +696,8 @@ export default function CheckoutPage() {
                     const imgSrc = resolveImageUrl(
                       (it.product as any).imageUrl,
                     );
+                    const unitPrice = getItemUnitPrice(it);
+                    const lineTotal = unitPrice * qty;
 
                     return (
                       <div
@@ -559,13 +705,12 @@ export default function CheckoutPage() {
                         style={{
                           padding: 12,
                           borderRadius: 14,
-                          border: `1px solid ${
-                            ui
+                          border: `1px solid ${ui
                               ? ui.color === "#cf1322"
                                 ? "rgba(207,19,34,0.35)"
                                 : "rgba(212,136,6,0.35)"
                               : "var(--aca-border)"
-                          }`,
+                            }`,
                           background: ui
                             ? "rgba(0,0,0,0.02)"
                             : "var(--aca-bg2)",
@@ -579,7 +724,6 @@ export default function CheckoutPage() {
                             alignItems: "flex-start",
                           }}
                         >
-                          {/* Image + name */}
                           <div
                             style={{
                               display: "flex",
@@ -631,6 +775,14 @@ export default function CheckoutPage() {
                               >
                                 {it.product.name}
                               </Text>
+
+                              {unitPrice > 0 ? (
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  ${unitPrice.toFixed(2)} each · $
+                                  {lineTotal.toFixed(2)}
+                                </Text>
+                              ) : null}
+
                               {ui ? (
                                 <div
                                   style={{
@@ -755,6 +907,61 @@ export default function CheckoutPage() {
           </div>
         </aside>
       </div>
+
+      <Modal
+        open={ackOpen}
+        title="Acknowledgement required"
+        onCancel={() => {
+          setAckOpen(false);
+          setPendingValues(null);
+          setAckValue("");
+        }}
+        onOk={handleAckOk}
+        okText="Confirm and place order"
+        confirmLoading={submitting}
+        okButtonProps={{
+          disabled: ackValue.trim() !== ACK_TEXT,
+        }}
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <Alert
+            type="warning"
+            showIcon
+            message="Please read before placing your order"
+            description={
+              <div style={{ display: "grid", gap: 6 }}>
+                <div>
+                  By placing this order, you confirm that your details and
+                  delivery information are correct.
+                </div>
+                <div>
+                  You also understand that stock is subject to availability at
+                  the time your order is processed.
+                </div>
+                {isMutare ? (
+                  <div>
+                    Mutare orders require a minimum basket value of $
+                    {MUTARE_MINIMUM.toFixed(2)} and a valid personal address.
+                  </div>
+                ) : null}
+              </div>
+            }
+          />
+
+          <div>
+            <Text strong>
+              Type exactly:{" "}
+              <span style={{ userSelect: "all" }}>{ACK_TEXT}</span>
+            </Text>
+          </div>
+
+          <Input
+            value={ackValue}
+            onChange={(e) => setAckValue(e.target.value)}
+            placeholder={ACK_TEXT}
+          />
+        </div>
+      </Modal>
     </div>
   );
 }
