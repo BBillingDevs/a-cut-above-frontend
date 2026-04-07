@@ -23,22 +23,37 @@ import {
 
 const { Title, Text } = Typography;
 
-type TrackForm = { orderNo: string; phone: string };
+type TrackForm = {
+  orderNo: string;
+  contact: string;
+};
 
 function normalizeStatus(status: any) {
   const s = String(status || "")
     .toUpperCase()
     .trim();
-  if (s === "OUT_FOR_DELIVERY") return "SHIPPING";
+
+  if (s === "OUT_FOR_DELIVERY") return "OUT_FOR_DELIVERY";
   return s;
 }
 
 function statusToStep(status: string) {
   const s = normalizeStatus(status);
   if (s === "DELIVERED") return 4;
-  if (s === "SHIPPING") return 3;
+  if (s === "OUT_FOR_DELIVERY") return 3;
   if (s === "PACKED") return 2;
+  if (s === "READY_TO_PACK") return 2;
   return 1;
+}
+
+function statusLabel(status: string) {
+  const s = normalizeStatus(status);
+  if (s === "ORDER_PLACED") return "Order Placed";
+  if (s === "READY_TO_PACK") return "Ready to Pack";
+  if (s === "PACKED") return "Packed";
+  if (s === "OUT_FOR_DELIVERY") return "Out on Delivery";
+  if (s === "DELIVERED") return "Delivered";
+  return "Order Placed";
 }
 
 function money(n: any) {
@@ -69,7 +84,10 @@ export default function TrackOrderPage() {
   async function track(values: TrackForm) {
     setLoading(true);
     try {
-      const res = await api.post("/api/public/orders/track", values);
+      const res = await api.post("/api/public/orders/track", {
+        orderNo: values.orderNo,
+        contact: values.contact,
+      });
       setOrder(res.data.order);
     } catch (e: any) {
       setOrder(null);
@@ -82,10 +100,7 @@ export default function TrackOrderPage() {
   const step = useMemo(() => (order ? statusToStep(order.status) : 1), [order]);
 
   const trackedDeliveryDate = useMemo(() => {
-    const raw =
-      (order as any)?.deliverySchedule?.deliveryDate ??
-      (order as any)?.deliveryDate ??
-      null;
+    const raw = (order as any)?.deliveryDate ?? null;
     return formatDate(raw);
   }, [order]);
 
@@ -102,7 +117,8 @@ export default function TrackOrderPage() {
             Track Your Order
           </Title>
           <Text className="aca-tracking__subtitle">
-            Enter your order number and phone to view status.
+            Enter your order number and either your phone number or email
+            address.
           </Text>
         </div>
       </div>
@@ -143,9 +159,27 @@ export default function TrackOrderPage() {
               style={{ width: 280 }}
             />
           </Form.Item>
-          <Form.Item name="phone" rules={[{ required: true }]}>
-            <Input placeholder="Phone" style={{ width: 200 }} />
+
+          <Form.Item
+            name="contact"
+            rules={[
+              { required: true, message: "Enter your phone or email" },
+              {
+                validator: (_, value) => {
+                  const v = String(value || "").trim();
+                  if (v.length < 5) {
+                    return Promise.reject(
+                      "Please enter a valid phone or email",
+                    );
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
+            <Input placeholder="Phone or email" style={{ width: 240 }} />
           </Form.Item>
+
           <Button type="primary" htmlType="submit" loading={loading}>
             Track
           </Button>
@@ -166,7 +200,7 @@ export default function TrackOrderPage() {
                   <div className="aca-step__dot">
                     <FileTextOutlined />
                   </div>
-                  <div className="aca-step__label">Processing</div>
+                  <div className="aca-step__label">Order Placed</div>
                 </div>
 
                 <div
@@ -180,7 +214,11 @@ export default function TrackOrderPage() {
                   <div className="aca-step__dot">
                     <InboxOutlined />
                   </div>
-                  <div className="aca-step__label">Packed</div>
+                  <div className="aca-step__label">
+                    {order.status === "READY_TO_PACK"
+                      ? "Ready to Pack"
+                      : "Packed"}
+                  </div>
                 </div>
 
                 <div
@@ -223,8 +261,10 @@ export default function TrackOrderPage() {
                 <div className="aca-orderMeta__val">{order.customerName}</div>
               </div>
               <div>
-                <Text type="secondary">Phone</Text>
-                <div className="aca-orderMeta__val">{order.customerPhone}</div>
+                <Text type="secondary">Status</Text>
+                <div className="aca-orderMeta__val">
+                  {statusLabel(order.status)}
+                </div>
               </div>
               <div>
                 <Text type="secondary">Created</Text>

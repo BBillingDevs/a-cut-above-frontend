@@ -26,6 +26,9 @@ import {
   ExclamationCircleOutlined,
   CloseCircleOutlined,
 } from "@ant-design/icons";
+import { PhoneInput } from "react-international-phone";
+import "react-international-phone/style.css";
+
 import { api, RAILWAY_BASE } from "../../api/client";
 import { useCart } from "../../context/CartContext";
 
@@ -81,12 +84,45 @@ function resolveImageUrl(url?: string | null): string | null {
 function getItemUnitPrice(item: any): number {
   return asMoney(
     item?.price ??
-    item?.unitPrice ??
-    item?.product?.price ??
-    item?.product?.unitPrice ??
-    item?.product?.pricePerPack ??
-    0,
+      item?.unitPrice ??
+      item?.product?.price ??
+      item?.product?.unitPrice ??
+      item?.product?.pricePerPack ??
+      item?.product?.retailPrice ??
+      0,
   );
+}
+
+function getItemAvgWeightKg(item: any): number | null {
+  const avgWeightG = Number(item?.avgWeightG ?? item?.product?.avgWeightG ?? 0);
+  if (!Number.isFinite(avgWeightG) || avgWeightG <= 0) return null;
+  return avgWeightG / 1000;
+}
+
+function isEstimatedWeightItem(item: any): boolean {
+  const unit = String(item?.product?.unit ?? item?.unit ?? "").toLowerCase();
+  return unit !== "pack";
+}
+
+function getEstimatedLineTotal(item: any): number {
+  const qty = asInt(item?.qty, 1);
+  const unitPrice = getItemUnitPrice(item);
+  const unit = String(item?.product?.unit ?? item?.unit ?? "").toLowerCase();
+
+  if (unit === "pack") {
+    return qty * unitPrice;
+  }
+
+  const avgWeightKg = getItemAvgWeightKg(item);
+  if (!avgWeightKg) {
+    return qty * unitPrice;
+  }
+
+  return qty * avgWeightKg * unitPrice;
+}
+
+function normalizeIntlPhone(phone: string) {
+  return String(phone || "").replace(/[^\d+]/g, "");
 }
 
 export default function CheckoutPage() {
@@ -109,6 +145,8 @@ export default function CheckoutPage() {
   const [ackOpen, setAckOpen] = useState(false);
   const [ackChecked, setAckChecked] = useState(false);
   const [pendingValues, setPendingValues] = useState<any | null>(null);
+
+  const [phoneValue, setPhoneValue] = useState("+263");
 
   async function loadWindow() {
     try {
@@ -171,11 +209,11 @@ export default function CheckoutPage() {
   }, [selectedDropoff]);
 
   const cartSubtotal = useMemo(() => {
-    return items.reduce((sum, it) => {
-      const qty = asInt(it.qty, 1);
-      const unitPrice = getItemUnitPrice(it);
-      return sum + qty * unitPrice;
-    }, 0);
+    return items.reduce((sum, it) => sum + getEstimatedLineTotal(it), 0);
+  }, [items]);
+
+  const hasEstimatedPricing = useMemo(() => {
+    return items.some((it) => isEstimatedWeightItem(it));
   }, [items]);
 
   const deliveryInfo = useMemo(() => {
@@ -261,7 +299,7 @@ export default function CheckoutPage() {
 
   async function doSubmit(values: any) {
     const customerName = String(values.customerName || "").trim();
-    const customerPhone = String(values.customerPhone || "").trim();
+    const customerPhone = normalizeIntlPhone(phoneValue);
     const customerEmail = String(values.customerEmail || "").trim();
     const dropoffLocationId = String(values.dropoffLocationId || "").trim();
     const personalAddress = String(values.personalAddress || "").trim();
@@ -288,6 +326,7 @@ export default function CheckoutPage() {
 
       clear();
       form.resetFields();
+      setPhoneValue("+263");
       setAckChecked(false);
       setPendingValues(null);
 
@@ -319,6 +358,16 @@ export default function CheckoutPage() {
   async function submit(values: any) {
     if (items.length === 0) return;
     if (!windowState.open) return;
+
+    if (normalizeIntlPhone(phoneValue).length < 8) {
+      form.setFields([
+        {
+          name: "customerPhone",
+          errors: ["Please enter a valid phone number"],
+        },
+      ]);
+      return;
+    }
 
     if (isMutare && cartSubtotal < MUTARE_MINIMUM) {
       form.setFields([
@@ -378,6 +427,48 @@ export default function CheckoutPage() {
         />
       ) : null}
 
+      {selectedDropoff ? (
+        <div style={{ marginTop: 14, marginBottom: 16 }}>
+          {deliveryInfo.has ? (
+            <Alert
+              type="info"
+              showIcon
+              message="Next delivery schedule"
+              description={
+                <div style={{ display: "grid", gap: 4 }}>
+                  <div>
+                    Delivery location: <b>{selectedDropoff.name}</b>
+                  </div>
+                  <div>
+                    Order cut-off:{" "}
+                    <b>{deliveryInfo.cutoff!.toLocaleDateString()}</b>
+                  </div>
+                  <div>
+                    Delivery date:{" "}
+                    <b>{deliveryInfo.nextDelivery!.toLocaleDateString()}</b>
+                  </div>
+                  <div style={{ opacity: 0.8 }}>
+                    Orders placed after the cut-off will go on the next delivery
+                    run.
+                  </div>
+                </div>
+              }
+            />
+          ) : (
+            <Alert
+              type="warning"
+              showIcon
+              message="No upcoming delivery scheduled"
+              description={
+                selectedDropoff
+                  ? `No upcoming delivery is scheduled yet for ${selectedDropoff.name}. Please contact us if you need a delivery date.`
+                  : "Please contact us if you need a delivery date for this location."
+              }
+            />
+          )}
+        </div>
+      ) : null}
+
       <div className="aca-checkoutGrid">
         <div style={{ display: "grid", gap: 16 }}>
           <Card className="aca-card">
@@ -432,12 +523,8 @@ export default function CheckoutPage() {
                   }
                   rules={[
                     {
-                      required: true,
-                      message: "Please enter your phone number",
-                    },
-                    {
-                      validator: (_, value) => {
-                        if (String(value || "").trim().length >= 5) {
+                      validator: () => {
+                        if (normalizeIntlPhone(phoneValue).length >= 8) {
                           return Promise.resolve();
                         }
                         return Promise.reject(
@@ -446,9 +533,41 @@ export default function CheckoutPage() {
                       },
                     },
                   ]}
-                  normalize={(v) => String(v || "")}
                 >
-                  <Input placeholder="WhatsApp/phone number" />
+                  <div
+                    style={{
+                      border: "1px solid #d9d9d9",
+                      borderRadius: 6,
+                      padding: 1,
+                    }}
+                  >
+                    <PhoneInput
+                      defaultCountry="zw"
+                      value={phoneValue}
+                      onChange={(phone) => {
+                        setPhoneValue(phone);
+                        form.setFieldValue("customerPhone", phone);
+                      }}
+                      inputStyle={{
+                        width: "100%",
+                        border: "none",
+                        boxShadow: "none",
+                        height: 30,
+                      }}
+                      countrySelectorStyleProps={{
+                        buttonStyle: {
+                          border: "none",
+                          borderRight: "1px solid #f0f0f0",
+                          height: 30,
+                        },
+                        dropdownStyleProps: {
+                          style: {
+                            zIndex: 1200,
+                          },
+                        },
+                      }}
+                    />
+                  </div>
                 </Form.Item>
               </div>
 
@@ -477,16 +596,11 @@ export default function CheckoutPage() {
                   showIcon
                   message="Mutare delivery requirements"
                   description={
-                    <div style={{ display: "grid", gap: 4 }}>
+                    <div
+                      style={{ display: "grid", gap: 4, marginBottom: "10px" }}
+                    >
                       <div>
                         Minimum order value: <b>${MUTARE_MINIMUM.toFixed(2)}</b>
-                      </div>
-                      <div>
-                        Current cart total: <b>${cartSubtotal.toFixed(2)}</b>
-                      </div>
-                      <div>
-                        A personal delivery address is required for Mutare
-                        orders.
                       </div>
                     </div>
                   }
@@ -525,45 +639,6 @@ export default function CheckoutPage() {
                     }))}
                 />
               </Form.Item>
-
-              {selectedDropoff ? (
-                <div style={{ display: "grid", gap: 10 }}>
-                  {deliveryInfo.has ? (
-                    <Alert
-                      type="info"
-                      showIcon
-                      style={{ marginTop: 8 }}
-                      message="Next delivery schedule"
-                      description={
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <div>
-                            Order cut-off:{" "}
-                            <b>{deliveryInfo.cutoff!.toLocaleDateString()}</b>
-                          </div>
-                          <div>
-                            Delivery date:{" "}
-                            <b>
-                              {deliveryInfo.nextDelivery!.toLocaleDateString()}
-                            </b>
-                          </div>
-                          <div style={{ opacity: 0.8 }}>
-                            Orders placed after the cut-off will go on the next
-                            delivery run.
-                          </div>
-                        </div>
-                      }
-                    />
-                  ) : (
-                    <Alert
-                      type="warning"
-                      showIcon
-                      style={{ marginTop: 8 }}
-                      message="No upcoming delivery scheduled"
-                      description="Please contact us if you need a delivery date for this location."
-                    />
-                  )}
-                </div>
-              ) : null}
 
               {isMutare ? (
                 <Form.Item
@@ -687,6 +762,16 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
+              {hasEstimatedPricing ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message="Estimated total"
+                  description="This subtotal is only an estimate for weight-based items. Your final price will be confirmed and sent to you once packing is completed."
+                />
+              ) : null}
+
               {items.length === 0 ? (
                 <Text type="secondary">No items yet.</Text>
               ) : (
@@ -698,8 +783,8 @@ export default function CheckoutPage() {
                     const ui = issueUi(issue);
                     const maxIfKnown =
                       issue &&
-                        issue.reason === "INSUFFICIENT" &&
-                        Number(issue.available) > 0
+                      issue.reason === "INSUFFICIENT" &&
+                      Number(issue.available) > 0
                         ? Number(issue.available)
                         : undefined;
                     const disablePlus =
@@ -710,7 +795,9 @@ export default function CheckoutPage() {
                       (it.product as any).imageUrl,
                     );
                     const unitPrice = getItemUnitPrice(it);
-                    const lineTotal = unitPrice * qty;
+                    const lineTotal = getEstimatedLineTotal(it);
+                    const avgWeightKg = getItemAvgWeightKg(it);
+                    const isEstimated = isEstimatedWeightItem(it);
 
                     return (
                       <div
@@ -718,12 +805,13 @@ export default function CheckoutPage() {
                         style={{
                           padding: 12,
                           borderRadius: 14,
-                          border: `1px solid ${ui
+                          border: `1px solid ${
+                            ui
                               ? ui.color === "#cf1322"
                                 ? "rgba(207,19,34,0.35)"
                                 : "rgba(212,136,6,0.35)"
                               : "var(--aca-border)"
-                            }`,
+                          }`,
                           background: ui
                             ? "rgba(0,0,0,0.02)"
                             : "var(--aca-bg2)",
@@ -790,10 +878,23 @@ export default function CheckoutPage() {
                               </Text>
 
                               {unitPrice > 0 ? (
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  ${unitPrice.toFixed(2)} each · $
-                                  {lineTotal.toFixed(2)}
-                                </Text>
+                                <div style={{ display: "grid", gap: 2 }}>
+                                  <Text
+                                    type="secondary"
+                                    style={{ fontSize: 12 }}
+                                  >
+                                    {`$${lineTotal.toFixed(2)}`}
+                                  </Text>
+
+                                  {isEstimated ? (
+                                    <Text
+                                      type="warning"
+                                      style={{ fontSize: 12 }}
+                                    >
+                                      Estimated from average weight
+                                    </Text>
+                                  ) : null}
+                                </div>
                               ) : null}
 
                               {ui ? (
@@ -951,6 +1052,13 @@ export default function CheckoutPage() {
                   You also understand that stock is subject to availability at
                   the time your order is processed.
                 </div>
+                {hasEstimatedPricing ? (
+                  <div>
+                    For weight-based items, the total shown is an estimate only.
+                    Your final price will be confirmed and sent to you once
+                    packing is completed.
+                  </div>
+                ) : null}
                 {isMutare ? (
                   <div>
                     Mutare orders require a minimum basket value of $

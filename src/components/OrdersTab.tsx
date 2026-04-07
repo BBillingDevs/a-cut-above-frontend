@@ -16,6 +16,7 @@ import {
   Typography,
   Grid,
   Empty,
+  Switch,
 } from "antd";
 import type { MenuProps } from "antd";
 import {
@@ -34,13 +35,14 @@ import type {
   AdminOrderItem,
 } from "../pages/admin/AdminDashboardPage";
 
-const { Text } = Typography;
+const { Text, Title } = Typography;
 const { useBreakpoint } = Grid;
 
 const STATUS_OPTIONS = [
-  { label: "Processing", value: "PROCESSING" },
+  { label: "Order Placed", value: "ORDER_PLACED" },
+  { label: "Ready to Pack", value: "READY_TO_PACK" },
   { label: "Packed", value: "PACKED" },
-  { label: "Shipping", value: "SHIPPING" },
+  { label: "Out for Delivery", value: "OUT_FOR_DELIVERY" },
   { label: "Delivered", value: "DELIVERED" },
 ];
 
@@ -118,8 +120,6 @@ function recomputeOrderClient(order: AdminOrder) {
   return { items: nextItems, subtotal, total: subtotal };
 }
 
-// ─── Weight cell with local state + Save button ───────────────────────────────
-
 function WeightCell({
   item,
   isMobile,
@@ -127,23 +127,38 @@ function WeightCell({
 }: {
   item: AdminOrderItem;
   isMobile: boolean;
-  onWeightUpdate: (itemId: string, weightKg: number | null) => Promise<void>;
+  onWeightUpdate: (
+    itemId: string,
+    weightValue: number | null,
+    weightUnit: "kg" | "g",
+  ) => Promise<void>;
 }) {
   const raw = (item as any).weightKg;
-  const committed =
+  const committedKg =
     raw === null || raw === undefined || raw === "" ? null : Number(raw);
 
-  const [localValue, setLocalValue] = useState(
-    committed === null ? undefined : committed,
+  const [localValue, setLocalValue] = useState<number | undefined>(
+    committedKg === null ? undefined : committedKg,
   );
+  const [localUnit, setLocalUnit] = useState<"kg" | "g">("kg");
   const [saving, setSaving] = useState(false);
 
-  // Keep local state in sync when the prop changes (e.g. after reload)
   useEffect(() => {
-    setLocalValue(committed === null ? undefined : committed);
-  }, [committed]);
+    setLocalValue(committedKg === null ? undefined : committedKg);
+    setLocalUnit("kg");
+  }, [committedKg]);
 
-  const isDirty = localValue !== (committed === null ? undefined : committed);
+  const normalizedLocalKg =
+    localValue === undefined
+      ? undefined
+      : localUnit === "g"
+        ? Number(localValue) / 1000
+        : Number(localValue);
+
+  const normalizedCommittedKg = committedKg === null ? undefined : committedKg;
+
+  const isDirty =
+    normalizedLocalKg !== normalizedCommittedKg || localUnit !== "kg";
 
   async function save() {
     setSaving(true);
@@ -151,6 +166,7 @@ function WeightCell({
       await onWeightUpdate(
         item.id,
         localValue === undefined ? null : Number(localValue),
+        localUnit,
       );
     } finally {
       setSaving(false);
@@ -158,17 +174,36 @@ function WeightCell({
   }
 
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+    <div
+      style={{
+        display: "flex",
+        gap: 6,
+        alignItems: "center",
+        flexWrap: "wrap",
+      }}
+    >
       <InputNumber
         value={localValue}
         onChange={(v) => setLocalValue(v === null ? undefined : Number(v))}
         onPressEnter={isDirty ? save : undefined}
-        placeholder="kg"
+        placeholder={localUnit}
         min={0}
-        step={0.1}
+        step={localUnit === "g" ? 1 : 0.1}
         style={{ width: isMobile ? 90 : 100 }}
         size={isMobile ? "large" : "middle"}
       />
+
+      <Select
+        value={localUnit}
+        onChange={(v) => setLocalUnit(v)}
+        style={{ width: 76 }}
+        size={isMobile ? "large" : "middle"}
+        options={[
+          { label: "kg", value: "kg" },
+          { label: "g", value: "g" },
+        ]}
+      />
+
       <Button
         type={isDirty ? "primary" : "default"}
         size={isMobile ? "large" : "small"}
@@ -183,20 +218,30 @@ function WeightCell({
   );
 }
 
-// ─── Inner order table ────────────────────────────────────────────────────────
-
 function OrderTable({
   orders,
   isMobile,
+  expandedRowKeys,
+  onExpandedRowKeysChange,
   onStatusUpdate,
   onWeightUpdate,
   onDelete,
+  selectedRowKeys,
+  onSelectedRowKeysChange,
 }: {
   orders: AdminOrder[];
   isMobile: boolean;
+  expandedRowKeys: React.Key[];
+  onExpandedRowKeysChange: (keys: React.Key[]) => void;
   onStatusUpdate: (orderId: string, status: string) => Promise<void>;
-  onWeightUpdate: (itemId: string, weightKg: number | null) => Promise<void>;
+  onWeightUpdate: (
+    itemId: string,
+    weightValue: number | null,
+    weightUnit: "kg" | "g",
+  ) => Promise<void>;
   onDelete: (orderId: string, orderNo: string) => Promise<void>;
+  selectedRowKeys: React.Key[];
+  onSelectedRowKeysChange: (keys: React.Key[]) => void;
 }) {
   const expandedColumns = useMemo(
     () =>
@@ -228,9 +273,9 @@ function OrderTable({
           render: (v: any) => Number(v || 0),
         },
         {
-          title: "Weight (kg)",
+          title: "Weight",
           key: "weightKg",
-          width: isMobile ? 180 : 200,
+          width: isMobile ? 210 : 240,
           render: (_: any, it: AdminOrderItem) => {
             if (!isKgItem(it)) return <Tag>Pack</Tag>;
             return (
@@ -298,7 +343,7 @@ function OrderTable({
           title: "Status",
           dataIndex: "status",
           key: "status",
-          width: isMobile ? 150 : 170,
+          width: isMobile ? 170 : 190,
           render: (_: any, row: AdminOrder) => (
             <Select
               value={row.status}
@@ -357,18 +402,27 @@ function OrderTable({
           ),
         },
       ] as any[],
-    [isMobile],
+    [isMobile, onDelete, onStatusUpdate],
   );
+
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (keys: React.Key[]) => onSelectedRowKeysChange(keys),
+    preserveSelectedRowKeys: true,
+  };
 
   return (
     <Table
       rowKey={(r) => r.id}
+      rowSelection={rowSelection}
       dataSource={orders}
       columns={columns}
       size={isMobile ? "small" : "middle"}
-      scroll={isMobile ? { x: 700 } : undefined}
+      scroll={isMobile ? { x: 760 } : undefined}
       pagination={{ pageSize: 20, showSizeChanger: false }}
       expandable={{
+        expandedRowKeys,
+        onExpandedRowsChange: (keys) => onExpandedRowKeysChange(keys),
         expandedRowRender: (order) => {
           const stableItems = [...(order.items || [])].sort(
             (a: any, b: any) =>
@@ -417,7 +471,7 @@ function OrderTable({
                 dataSource={stableItems}
                 pagination={false}
                 columns={expandedColumns}
-                scroll={isMobile ? { x: 580 } : undefined}
+                scroll={isMobile ? { x: 620 } : undefined}
               />
             </div>
           );
@@ -426,8 +480,6 @@ function OrderTable({
     />
   );
 }
-
-// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function OrdersTab({
   loading,
@@ -448,12 +500,20 @@ export default function OrdersTab({
   const [filterLocationId, setFilterLocationId] = useState("");
   const [filterScheduleId, setFilterScheduleId] = useState("");
 
-  const [bulkStatus, setBulkStatus] = useState("PROCESSING");
+  const [bulkStatus, setBulkStatus] = useState("ORDER_PLACED");
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
 
+  const [sendWhatsApp, setSendWhatsApp] = useState(true);
+
   const [packingOpen, setPackingOpen] = useState(false);
   const [packingScheduleId, setPackingScheduleId] = useState("");
+
+  const [deliveryRunOpen, setDeliveryRunOpen] = useState(false);
+  const [deliveryRunScheduleId, setDeliveryRunScheduleId] = useState("");
+  const [deliveryRunLocationId, setDeliveryRunLocationId] = useState("");
+
+  const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
 
   useEffect(() => {
     const normalized = (orders || []).map((o) => ({
@@ -471,7 +531,7 @@ export default function OrdersTab({
   }, [orders]);
 
   const locationOptions = useMemo(() => {
-    const seen = new Map();
+    const seen = new Map<string, string>();
     for (const s of schedules) {
       seen.set(s.dropoffLocation.id, s.dropoffLocation.name);
     }
@@ -492,6 +552,19 @@ export default function OrdersTab({
       }));
   }, [schedules, filterLocationId]);
 
+  const deliveryRunScheduleOptions = useMemo(() => {
+    return schedules
+      .filter(
+        (s) =>
+          !deliveryRunLocationId ||
+          s.dropoffLocationId === deliveryRunLocationId,
+      )
+      .map((s) => ({
+        value: s.id,
+        label: `${s.dropoffLocation.name} — ${fmtDate(s.cutoffDate)} → ${fmtDate(s.deliveryDate)}`,
+      }));
+  }, [schedules, deliveryRunLocationId]);
+
   const grouped = useMemo((): LocationGroup[] => {
     const filteredOrders = displayOrders.filter((o) => {
       const anyO = o as any;
@@ -502,7 +575,7 @@ export default function OrdersTab({
       return true;
     });
 
-    const byLocation = new Map();
+    const byLocation = new Map<string, LocationGroup>();
 
     for (const order of filteredOrders) {
       const anyO = order as any;
@@ -519,7 +592,7 @@ export default function OrdersTab({
         });
       }
 
-      const locGroup = byLocation.get(locId);
+      const locGroup = byLocation.get(locId)!;
 
       if (!schedId) {
         locGroup.unscheduled.push(order);
@@ -532,13 +605,12 @@ export default function OrdersTab({
             orders: [],
           });
         }
-        locGroup.schedules.get(schedId).orders.push(order);
+        locGroup.schedules.get(schedId)!.orders.push(order);
       }
     }
 
-    return Array.from(byLocation.values()).sort(
-      (a: LocationGroup, b: LocationGroup) =>
-        a.locationName.localeCompare(b.locationName),
+    return Array.from(byLocation.values()).sort((a, b) =>
+      a.locationName.localeCompare(b.locationName),
     );
   }, [displayOrders, schedules, filterLocationId, filterScheduleId]);
 
@@ -549,6 +621,12 @@ export default function OrdersTab({
       setDisplayOrders((prev) =>
         prev.filter((o) => String(o.id) !== String(orderId)),
       );
+      setExpandedRowKeys((prev) =>
+        prev.filter((k) => String(k) !== String(orderId)),
+      );
+      setSelectedRowKeys((prev) =>
+        prev.filter((k) => String(k) !== String(orderId)),
+      );
       onReload();
     } catch (e: any) {
       message.error(e?.response?.data?.error || "Failed to delete order");
@@ -557,12 +635,17 @@ export default function OrdersTab({
 
   async function handleStatusUpdate(orderId: string, status: string) {
     try {
-      await api.put(`/api/admin/orders/${orderId}/status`, { status });
+      await api.put(`/api/admin/orders/${orderId}/status`, {
+        status,
+        sendWhatsApp,
+      });
+
       setDisplayOrders((prev) =>
         prev.map((o) =>
           String(o.id) === String(orderId) ? ({ ...o, status } as any) : o,
         ),
       );
+
       message.success("Status updated");
       onReload();
     } catch (e: any) {
@@ -570,9 +653,22 @@ export default function OrdersTab({
     }
   }
 
-  async function handleWeightUpdate(itemId: string, weightKg: number | null) {
+  async function handleWeightUpdate(
+    itemId: string,
+    weightValue: number | null,
+    weightUnit: "kg" | "g",
+  ) {
+    const affectedOrder = displayOrders.find((o) =>
+      (o.items || []).some((it: any) => String(it.id) === String(itemId)),
+    );
+    const affectedOrderId = affectedOrder?.id;
+
     try {
-      await api.put(`/api/admin/order-items/${itemId}/weight`, { weightKg });
+      await api.put(`/api/admin/order-items/${itemId}/weight`, {
+        weightValue,
+        weightUnit,
+      });
+
       setDisplayOrders((prev) =>
         prev.map((o) => {
           const items = o.items || [];
@@ -580,15 +676,34 @@ export default function OrdersTab({
             (it: any) => String(it.id) === String(itemId),
           );
           if (idx === -1) return o;
+
+          const normalizedKg =
+            weightValue === null
+              ? null
+              : weightUnit === "g"
+                ? Number(weightValue) / 1000
+                : Number(weightValue);
+
           const nextItems = items.map((it: any) =>
             String(it.id) === String(itemId)
-              ? { ...it, weightKg: weightKg === null ? null : Number(weightKg) }
+              ? {
+                ...it,
+                weightKg: normalizedKg === null ? null : Number(normalizedKg),
+              }
               : it,
           );
+
           const nextOrder = { ...o, items: nextItems } as any;
           return { ...nextOrder, ...recomputeOrderClient(nextOrder) };
         }),
       );
+
+      if (affectedOrderId) {
+        setExpandedRowKeys((prev) =>
+          prev.includes(affectedOrderId) ? prev : [...prev, affectedOrderId],
+        );
+      }
+
       message.success("Weight saved");
       onReload();
     } catch (e: any) {
@@ -601,15 +716,29 @@ export default function OrdersTab({
       message.warning("Select at least one order");
       return;
     }
+
     setBulkLoading(true);
     try {
-      await Promise.all(
-        selectedRowKeys.map((id) => handleStatusUpdate(String(id), bulkStatus)),
+      await api.put("/api/admin/orders/status/bulk", {
+        ids: selectedRowKeys.map(String),
+        status: bulkStatus,
+        sendWhatsApp,
+      });
+
+      setDisplayOrders((prev) =>
+        prev.map((o) =>
+          selectedRowKeys.includes(o.id)
+            ? ({ ...o, status: bulkStatus } as any)
+            : o,
+        ),
       );
+
       message.success(`Updated ${selectedRowKeys.length} order(s)`);
       setSelectedRowKeys([]);
       onReload();
       setBulkOpen(false);
+    } catch (e: any) {
+      message.error(e?.response?.data?.error || "Bulk status update failed");
     } finally {
       setBulkLoading(false);
     }
@@ -631,14 +760,15 @@ export default function OrdersTab({
       return;
     }
 
-    const productSet = new Set();
+    const productSet = new Set<string>();
     for (const o of ordersToExport) {
       for (const it of o.items || []) {
         const name = String((it as any).productName || "").trim();
         if (name) productSet.add(name);
       }
     }
-    const productNames = Array.from(productSet as Set<string>).sort((a, b) =>
+
+    const productNames = Array.from(productSet).sort((a, b) =>
       a.localeCompare(b),
     );
     const headers = ["Customer", "Phone", "Order No", ...productNames];
@@ -699,6 +829,18 @@ export default function OrdersTab({
     setPackingOpen(false);
   }
 
+  function exportDeliveryRunPdf() {
+    const params = new URLSearchParams();
+    if (deliveryRunLocationId) params.set("locationId", deliveryRunLocationId);
+    if (deliveryRunScheduleId) params.set("scheduleId", deliveryRunScheduleId);
+
+    window.open(
+      `${API_BASE}/api/admin/orders/delivery-run.pdf?${params.toString()}`,
+      "_blank",
+    );
+    setDeliveryRunOpen(false);
+  }
+
   const moreMenuItems: MenuProps["items"] = [
     {
       key: "bulk",
@@ -711,6 +853,12 @@ export default function OrdersTab({
       label: "Packing list",
       icon: <DownloadOutlined />,
       onClick: () => setPackingOpen(true),
+    },
+    {
+      key: "delivery-run-pdf",
+      label: "Delivery Run PDF",
+      icon: <FilePdfOutlined />,
+      onClick: () => setDeliveryRunOpen(true),
     },
   ];
 
@@ -755,9 +903,13 @@ export default function OrdersTab({
               <OrderTable
                 orders={schedGroup.orders}
                 isMobile={isMobile}
+                expandedRowKeys={expandedRowKeys}
+                onExpandedRowKeysChange={setExpandedRowKeys}
                 onStatusUpdate={handleStatusUpdate}
                 onWeightUpdate={handleWeightUpdate}
                 onDelete={handleDelete}
+                selectedRowKeys={selectedRowKeys}
+                onSelectedRowKeysChange={setSelectedRowKeys}
               />
             ),
           };
@@ -780,9 +932,13 @@ export default function OrdersTab({
                 <OrderTable
                   orders={locGroup.unscheduled}
                   isMobile={isMobile}
+                  expandedRowKeys={expandedRowKeys}
+                  onExpandedRowKeysChange={setExpandedRowKeys}
                   onStatusUpdate={handleStatusUpdate}
                   onWeightUpdate={handleWeightUpdate}
                   onDelete={handleDelete}
+                  selectedRowKeys={selectedRowKeys}
+                  onSelectedRowKeysChange={setSelectedRowKeys}
                 />
               ),
             },
@@ -822,26 +978,23 @@ export default function OrdersTab({
           ),
       };
     });
-  }, [grouped, isMobile]);
+  }, [grouped, isMobile, expandedRowKeys, selectedRowKeys, sendWhatsApp]);
 
   return (
-    <Card
-      title="Orders"
-      loading={loading}
-      extra={
-        isMobile ? (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <Dropdown menu={{ items: moreMenuItems }} trigger={["click"]}>
-              <Button icon={<FilterOutlined />}>Actions</Button>
-            </Dropdown>
+    <Card loading={loading} styles={{ body: { padding: isMobile ? 8 : 16 } }}>
+      {!isMobile ? (
+        <div style={{ display: "grid", gap: 16, marginBottom: 16 }}>
+          <div>
+            <Title level={4} style={{ margin: 0 }}>
+              Orders
+            </Title>
           </div>
-        ) : (
+
           <div
             style={{
               display: "flex",
               flexDirection: "column",
               gap: 10,
-              alignItems: "flex-end",
             }}
           >
             <Space wrap>
@@ -869,50 +1022,174 @@ export default function OrdersTab({
 
             <Divider style={{ margin: 0 }} />
 
-            <Space wrap>
-              <Tag color="gold">Bulk status</Tag>
-              <Select
-                value={bulkStatus}
-                onChange={setBulkStatus}
-                style={{ width: 160 }}
-                options={STATUS_OPTIONS}
-              />
-              <Button
-                type="primary"
-                onClick={applyBulkStatus}
-                loading={bulkLoading}
-                disabled={selectedRowKeys.length === 0}
-              >
-                Apply to selected ({selectedRowKeys.length})
-              </Button>
+            <div
+              style={{
+                display: "grid",
+                gap: 14,
+                width: "100%",
+              }}
+            >
+              <Card size="small">
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "140px minmax(180px, 220px) auto auto",
+                    gap: 12,
+                    alignItems: "center",
+                  }}
+                >
+                  <Tag
+                    color="purple"
+                    style={{ margin: 0, justifySelf: "start" }}
+                  >
+                    Bulk status
+                  </Tag>
 
-              <Divider type="vertical" />
+                  <Select
+                    value={bulkStatus}
+                    onChange={setBulkStatus}
+                    style={{ width: "100%" }}
+                    options={STATUS_OPTIONS}
+                  />
 
-              <Tag color="blue">Packing list</Tag>
-              <Select
-                allowClear
-                placeholder="All schedules"
-                style={{ width: 300 }}
-                value={packingScheduleId || undefined}
-                onChange={(v) => setPackingScheduleId(v || "")}
-                options={schedules.map((s) => ({
-                  value: s.id,
-                  label: `${s.dropoffLocation.name} — ${fmtDate(s.cutoffDate)} → ${fmtDate(s.deliveryDate)}`,
-                }))}
-              />
-              <Button
-                onClick={exportPackingList}
-                icon={<DownloadOutlined />}
-                disabled={!displayOrders.length}
-              >
-                Export Excel
-              </Button>
-            </Space>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  >
+                    <Text>Send WhatsApp</Text>
+                    <Switch checked={sendWhatsApp} onChange={setSendWhatsApp} />
+                  </div>
+
+                  <Button
+                    type="primary"
+                    onClick={applyBulkStatus}
+                    loading={bulkLoading}
+                    disabled={selectedRowKeys.length === 0}
+                    style={{ justifySelf: "start" }}
+                  >
+                    Apply to selected ({selectedRowKeys.length})
+                  </Button>
+                </div>
+              </Card>
+
+              <Card size="small">
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "140px minmax(260px, 320px) auto",
+                    gap: 12,
+                    alignItems: "center",
+                  }}
+                >
+                  <Tag
+                    color="green"
+                    style={{ margin: 0, justifySelf: "start" }}
+                  >
+                    Packing list
+                  </Tag>
+
+                  <Select
+                    allowClear
+                    placeholder="All schedules"
+                    style={{ width: "100%" }}
+                    value={packingScheduleId || undefined}
+                    onChange={(v) => setPackingScheduleId(v || "")}
+                    options={schedules.map((s) => ({
+                      value: s.id,
+                      label: `${s.dropoffLocation.name} — ${fmtDate(s.cutoffDate)} → ${fmtDate(s.deliveryDate)}`,
+                    }))}
+                  />
+
+                  <Button
+                    onClick={exportPackingList}
+                    icon={<DownloadOutlined />}
+                    disabled={!displayOrders.length}
+                    style={{ justifySelf: "start" }}
+                  >
+                    Export Excel
+                  </Button>
+                </div>
+              </Card>
+
+              <Card size="small">
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "140px minmax(180px, 220px) minmax(260px, 320px) auto",
+                    gap: 12,
+                    alignItems: "center",
+                  }}
+                >
+                  <Tag color="blue" style={{ margin: 0, justifySelf: "start" }}>
+                    Delivery run PDF
+                  </Tag>
+
+                  <Select
+                    allowClear
+                    placeholder="Filter by location"
+                    style={{ width: "100%" }}
+                    value={deliveryRunLocationId || undefined}
+                    onChange={(v) => {
+                      setDeliveryRunLocationId(v || "");
+                      setDeliveryRunScheduleId("");
+                    }}
+                    options={locationOptions}
+                  />
+
+                  <Select
+                    allowClear
+                    placeholder="Filter by delivery slot"
+                    style={{ width: "100%" }}
+                    value={deliveryRunScheduleId || undefined}
+                    onChange={(v) => setDeliveryRunScheduleId(v || "")}
+                    options={deliveryRunScheduleOptions}
+                  />
+
+                  <Button
+                    icon={<FilePdfOutlined />}
+                    onClick={exportDeliveryRunPdf}
+                    style={{ justifySelf: "start" }}
+                  >
+                    Export PDF
+                  </Button>
+                </div>
+              </Card>
+            </div>
           </div>
-        )
-      }
-      styles={{ body: { padding: isMobile ? 8 : 16 } }}
-    >
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            marginBottom: 16,
+          }}
+        >
+          <Title level={4} style={{ margin: 0, flex: 1 }}>
+            Orders
+          </Title>
+          <Dropdown menu={{ items: moreMenuItems }} trigger={["click"]}>
+            <Button icon={<FilterOutlined />}>Actions</Button>
+          </Dropdown>
+        </div>
+      )}
+
+      {!isMobile && (
+        <div
+          style={{
+            marginBottom: 12,
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+          }}
+        >
+          <Text type="secondary">
+            Selected orders: {selectedRowKeys.length}
+          </Text>
+        </div>
+      )}
+
       {grouped.length === 0 ? (
         <Empty
           description="No orders found"
@@ -940,6 +1217,10 @@ export default function OrdersTab({
             size="large"
             options={STATUS_OPTIONS}
           />
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Text>Send WhatsApp</Text>
+            <Switch checked={sendWhatsApp} onChange={setSendWhatsApp} />
+          </div>
           <Button
             type="primary"
             size="large"
@@ -947,7 +1228,7 @@ export default function OrdersTab({
             loading={bulkLoading}
             block
           >
-            Apply to selected
+            Apply to selected ({selectedRowKeys.length})
           </Button>
         </div>
       </Drawer>
@@ -980,6 +1261,47 @@ export default function OrdersTab({
             block
           >
             Export Excel
+          </Button>
+        </div>
+      </Drawer>
+
+      <Drawer
+        title="Export delivery run PDF"
+        placement="bottom"
+        height="60vh"
+        open={deliveryRunOpen}
+        onClose={() => setDeliveryRunOpen(false)}
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <Select
+            allowClear
+            placeholder="Filter by location"
+            style={{ width: "100%" }}
+            value={deliveryRunLocationId || undefined}
+            onChange={(v) => {
+              setDeliveryRunLocationId(v || "");
+              setDeliveryRunScheduleId("");
+            }}
+            options={locationOptions}
+            size="large"
+          />
+          <Select
+            allowClear
+            placeholder="Filter by delivery slot"
+            style={{ width: "100%" }}
+            value={deliveryRunScheduleId || undefined}
+            onChange={(v) => setDeliveryRunScheduleId(v || "")}
+            options={deliveryRunScheduleOptions}
+            size="large"
+          />
+          <Button
+            type="primary"
+            size="large"
+            icon={<FilePdfOutlined />}
+            onClick={exportDeliveryRunPdf}
+            block
+          >
+            Export PDF
           </Button>
         </div>
       </Drawer>

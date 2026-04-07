@@ -2,9 +2,11 @@ import React, { useMemo, useState, useEffect } from "react";
 import {
   Button,
   Card,
+  Dropdown,
   Form,
   Input,
   InputNumber,
+  MenuProps,
   Modal,
   Popconfirm,
   Select,
@@ -17,7 +19,7 @@ import {
   message,
 } from "antd";
 import type { UploadProps } from "antd";
-import { UploadOutlined } from "@ant-design/icons";
+import { UploadOutlined, MoreOutlined } from "@ant-design/icons";
 import { api, RAILWAY_BASE } from "../api/client";
 import type {
   AdminCategory,
@@ -435,6 +437,73 @@ export default function ProductsTab({
     };
   }, [wasteForm, wasteProduct]);
 
+  const getActionMenuItems = (p: AdminProduct): MenuProps["items"] => {
+    const items: MenuProps["items"] = [];
+
+    if (showArchived) {
+      items.push({
+        key: "edit",
+        label: "Edit",
+        onClick: () => openEditProduct(p),
+      });
+      items.push({
+        key: "unarchive",
+        label: "Restore",
+        onClick: () => unarchiveProduct(p),
+      });
+      return items;
+    }
+
+    items.push({
+      key: "edit",
+      label: "Edit",
+      onClick: () => openEditProduct(p),
+    });
+
+    items.push({
+      key: "waste",
+      label: "Waste",
+      onClick: () => openWasteModal(p),
+    });
+
+    items.push({
+      key: "move-up",
+      label: "Move Up",
+      onClick: () => moveProduct(p.id, "up", p.categoryId ?? null),
+    });
+
+    items.push({
+      key: "move-down",
+      label: "Move Down",
+      onClick: () => moveProduct(p.id, "down", p.categoryId ?? null),
+    });
+
+    const hasOrders = Number((p as any)._count?.orderItems ?? 0) > 0;
+    const label = hasOrders ? "Archive" : "Delete";
+
+    items.push({
+      type: "divider",
+    });
+
+    items.push({
+      key: "delete",
+      danger: true,
+      label,
+      onClick: () => {
+        Modal.confirm({
+          title: hasOrders
+            ? "This product has previous orders. It will be archived (hidden from shop)."
+            : "Permanently delete this product? This cannot be undone.",
+          okText: label,
+          okButtonProps: { danger: true },
+          onOk: () => deleteOrArchiveProduct(p),
+        });
+      },
+    });
+
+    return items;
+  };
+
   const baseColumns = [
     {
       title: "Image",
@@ -495,12 +564,18 @@ export default function ProductsTab({
         );
       },
     },
-    { title: "Name", dataIndex: "name", key: "name" },
+    {
+      title: "Name",
+      dataIndex: "name",
+      key: "name",
+      width: 120,
+      ellipsis: true,
+    },
     {
       title: "Cut Type",
       dataIndex: "cutType",
       key: "cutType",
-      width: 160,
+      width: 80,
       render: (v: any) => {
         const s = typeof v === "string" ? v.trim() : "";
         return s ? <Tag>{s}</Tag> : <Tag color="default">—</Tag>;
@@ -516,52 +591,31 @@ export default function ProductsTab({
         fmtGrams(v === null || v === undefined ? null : Number(v)),
     },
     {
-      title: "Retail",
-      dataIndex: "retailPrice",
-      key: "retailPrice",
-      render: (v: any) => `$${Number(v).toFixed(2)}`,
-      width: 110,
-    },
-    {
-      title: "Wholesale",
-      dataIndex: "wholesalePrice",
-      key: "wholesalePrice",
-      render: (v: any) => `$${Number(v).toFixed(2)}`,
-      width: 120,
-    },
-    {
-      title: "Cost",
-      dataIndex: "costPrice",
-      key: "costPrice",
-      render: (v: any) => `$${Number(v ?? 0).toFixed(2)}`,
-      width: 110,
+      title: "Pricing",
+      key: "pricing",
+      width: 180,
+      render: (_: any, p: AdminProduct) => (
+        <div style={{ display: "grid", gap: 2, lineHeight: 1.3 }}>
+          <div>
+            <Text type="secondary">Retail:</Text>{" "}
+            <Text strong>{money(p.retailPrice)}</Text>
+          </div>
+          <div>
+            <Text type="secondary">Wholesale:</Text>{" "}
+            <Text strong>{money(p.wholesalePrice)}</Text>
+          </div>
+          <div>
+            <Text type="secondary">Cost:</Text>{" "}
+            <Text strong>{money((p as any).costPrice)}</Text>
+          </div>
+        </div>
+      ),
     },
     { title: "Stock", dataIndex: "stockQty", key: "stockQty", width: 90 },
     {
-      title: "Wasted Packs",
-      key: "totalPacksWasted",
-      width: 120,
-      render: (_: any, p: AdminProduct) =>
-        Number((p as any).totalPacksWasted ?? 0),
-    },
-    {
-      title: "Wasted Weight",
-      key: "totalWeightWastedG",
-      width: 130,
-      render: (_: any, p: AdminProduct) =>
-        fmtGrams(Number((p as any).totalWeightWastedG ?? 0)),
-    },
-    {
-      title: "Waste Value",
-      key: "totalWasteValue",
-      width: 130,
-      render: (_: any, p: AdminProduct) =>
-        money((p as any).totalWasteValue ?? 0),
-    },
-    {
       title: "Category",
       key: "category",
-      width: 180,
+      width: 80,
       render: (_: any, p: AdminProduct) =>
         p.category ? (
           <Space size={8}>
@@ -573,68 +627,22 @@ export default function ProductsTab({
         ),
     },
     {
-      title: "Order",
-      key: "order",
-      width: 140,
-      render: (_: any, p: AdminProduct) =>
-        showArchived ? null : (
-          <Space size={6}>
-            <Button
-              size="small"
-              onClick={() => moveProduct(p.id, "up", p.categoryId ?? null)}
-            >
-              ↑
-            </Button>
-            <Button
-              size="small"
-              onClick={() => moveProduct(p.id, "down", p.categoryId ?? null)}
-            >
-              ↓
-            </Button>
-          </Space>
-        ),
-    },
-    {
       title: "",
       key: "actions",
-      width: 320,
-      render: (_: any, p: AdminProduct) => {
-        if (showArchived) {
-          return (
-            <Space wrap>
-              <Button onClick={() => openEditProduct(p)}>Edit</Button>
-              <Popconfirm
-                title="Restore this product to the shop?"
-                okText="Restore"
-                onConfirm={() => unarchiveProduct(p)}
-              >
-                <Button type="primary">Unarchive</Button>
-              </Popconfirm>
-            </Space>
-          );
-        }
-
-        const hasOrders = Number((p as any)._count?.orderItems ?? 0) > 0;
-        const confirmTitle = hasOrders
-          ? "This product has previous orders. It will be archived (hidden from shop)."
-          : "Permanently delete this product? This cannot be undone.";
-        const btnLabel = hasOrders ? "Archive" : "Delete";
-
-        return (
-          <Space wrap>
-            <Button onClick={() => openEditProduct(p)}>Edit</Button>
-            <Button onClick={() => openWasteModal(p)}>Waste</Button>
-            <Popconfirm
-              title={confirmTitle}
-              okText={btnLabel}
-              okButtonProps={{ danger: true }}
-              onConfirm={() => deleteOrArchiveProduct(p)}
-            >
-              <Button danger>{btnLabel}</Button>
-            </Popconfirm>
-          </Space>
-        );
-      },
+      width: 80,
+      align: "right" as const,
+      render: (_: any, p: AdminProduct) => (
+        <Dropdown
+          menu={{ items: getActionMenuItems(p) }}
+          trigger={["click"]}
+          placement="bottomRight"
+        >
+          <Button
+            type="text"
+            icon={<MoreOutlined style={{ fontSize: 18 }} />}
+          />
+        </Dropdown>
+      ),
     },
   ] as any[];
 
@@ -692,7 +700,8 @@ export default function ProductsTab({
                 Number((b as any).sortOrder ?? 0),
             )}
           columns={baseColumns}
-          scroll={{ x: 1800 }}
+          scroll={{ x: "max-content" }}
+          style={{ width: "100%" }}
         />
       ) : (
         <div style={{ display: "grid", gap: 14 }}>
@@ -709,8 +718,9 @@ export default function ProductsTab({
                   dataSource={list}
                   columns={baseColumns}
                   pagination={false}
-                  scroll={{ x: 1800 }}
-                />
+                  scroll={{ x: "max-content" }}
+                  style={{ width: "100%" }}
+                />{" "}
               </Card>
             ))
           )}
