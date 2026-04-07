@@ -647,7 +647,6 @@ export default function OrdersTab({
       );
 
       message.success("Status updated");
-      onReload();
     } catch (e: any) {
       message.error(e?.response?.data?.error || "Status update failed");
     }
@@ -705,12 +704,10 @@ export default function OrdersTab({
       }
 
       message.success("Weight saved");
-      onReload();
     } catch (e: any) {
       message.error(e?.response?.data?.error || "Weight update failed");
     }
   }
-
   async function applyBulkStatus() {
     if (selectedRowKeys.length === 0) {
       message.warning("Select at least one order");
@@ -735,7 +732,6 @@ export default function OrdersTab({
 
       message.success(`Updated ${selectedRowKeys.length} order(s)`);
       setSelectedRowKeys([]);
-      onReload();
       setBulkOpen(false);
     } catch (e: any) {
       message.error(e?.response?.data?.error || "Bulk status update failed");
@@ -743,7 +739,6 @@ export default function OrdersTab({
       setBulkLoading(false);
     }
   }
-
   function exportPackingList() {
     const ordersToExport = packingScheduleId
       ? displayOrders.filter(
