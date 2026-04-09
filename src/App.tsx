@@ -11,6 +11,7 @@ import AdminTopBar from "./components/AdminTopBar";
 import ShopPage from "./pages/public/ShopPage";
 import CheckoutPage from "./pages/public/CheckoutPage";
 import TrackOrderPage from "./pages/public/TrackOrderPage";
+import WholesalePinPage from "./pages/public/WholesalePinPage";
 
 import AdminLoginPage from "./pages/admin/AdminLoginPage";
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
@@ -45,7 +46,6 @@ export default function App() {
 
   // ✅ Refresh (simple: reload current route)
   const refreshAdmin = useCallback(() => {
-    // Optionally re-check first (keeps logout button accurate)
     checkAdminAuth();
     navigate(0);
   }, [checkAdminAuth, navigate]);
@@ -57,7 +57,6 @@ export default function App() {
     } catch {
       // ignore network/logout errors
     } finally {
-      // Clear likely token keys (adjust/remove if you only use cookies)
       localStorage.removeItem("adminToken");
       localStorage.removeItem("aca_admin_token");
       localStorage.removeItem("token");
@@ -95,6 +94,9 @@ export default function App() {
           <Routes>
             <Route path="/" element={<ShopPage />} />
             <Route path="/products" element={<ShopPage />} />
+
+            <Route path="/wholesale" element={<WholesalePinPage />} />
+
             <Route path="/checkout" element={<CheckoutPage />} />
             <Route path="/track" element={<TrackOrderPage />} />
 

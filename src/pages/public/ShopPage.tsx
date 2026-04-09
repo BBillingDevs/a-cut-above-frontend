@@ -43,6 +43,18 @@ type WindowState = {
   nextDeliveryDate?: string;
 };
 
+type DropoffLocation = {
+  id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  nextSchedule?: {
+    cutoffDate: string;
+    deliveryDate: string;
+  } | null;
+};
+
 type PricedProduct = Product & {
   pricePerKg?: number | null;
   pricePerPack?: number | null;
@@ -87,16 +99,39 @@ function formatDeliveryDate(value?: string) {
   });
 }
 
-function deriveDeliveryBannerText(windowState: WindowState): string | null {
+function deriveDeliveryBannerText(
+  selectedLocation: DropoffLocation | null,
+  windowState: WindowState,
+): string | null {
+  if (selectedLocation?.nextSchedule?.deliveryDate) {
+    const delivery = formatDeliveryDate(
+      selectedLocation.nextSchedule.deliveryDate,
+    );
+    const cutoff = formatDeliveryDate(selectedLocation.nextSchedule.cutoffDate);
+
+    if (cutoff) {
+      return `${selectedLocation.name}: order by ${cutoff} • delivery ${delivery}`;
+    }
+
+    return `${selectedLocation.name}: delivery ${delivery}`;
+  }
+
+  if (selectedLocation?.name) {
+    return `No next delivery date currently available for ${selectedLocation.name}`;
+  }
+
   if (windowState.nextDeliveryDate) {
     return `Next delivery date: ${formatDeliveryDate(windowState.nextDeliveryDate)}`;
   }
+
   if (windowState.endsAt) {
     return `Next delivery date: ${formatDeliveryDate(windowState.endsAt)}`;
   }
+
   if (windowState.name) {
     return `Next delivery: ${windowState.name}`;
   }
+
   return null;
 }
 
@@ -116,6 +151,14 @@ export default function ShopPage() {
   const [windowState, setWindowState] = useState({
     open: true,
   } as WindowState);
+
+  const [dropoffLocations, setDropoffLocations] = useState<DropoffLocation[]>(
+    [],
+  );
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(
+    null,
+  );
+
   const [qtyMap, setQtyMap] = useState({} as Record<string, number>);
   const [activeCat, setActiveCat] = useState("all");
   const [sort, setSort] = useState("featured");
@@ -148,12 +191,40 @@ export default function ShopPage() {
   async function load() {
     setLoading(true);
     try {
-      const [wRes, pRes] = await Promise.all([
+      const [wRes, pRes, lRes] = await Promise.all([
         api.get("/api/public/order-window"),
         api.get("/api/public/products"),
+        api.get("/api/public/dropoff-locations"),
       ]);
 
       setWindowState(wRes.data);
+
+      const rawLocations = (lRes.data?.locations || lRes.data || []) as any[];
+      const activeLocations = rawLocations
+        .filter((loc) => loc?.isActive !== false)
+        .sort((a, b) => Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0))
+        .map(
+          (loc): DropoffLocation => ({
+            id: String(loc.id),
+            name: String(loc.name),
+            description: loc.description ?? null,
+            isActive: Boolean(loc.isActive),
+            sortOrder: Number(loc.sortOrder || 0),
+            nextSchedule: loc.nextSchedule
+              ? {
+                cutoffDate: String(loc.nextSchedule.cutoffDate),
+                deliveryDate: String(loc.nextSchedule.deliveryDate),
+              }
+              : null,
+          }),
+        );
+
+      setDropoffLocations(activeLocations);
+
+      setSelectedLocationId((prev) => {
+        if (prev && activeLocations.some((loc) => loc.id === prev)) return prev;
+        return activeLocations[0]?.id ?? null;
+      });
 
       const raw = (pRes.data?.products || []) as any[];
       setProducts(
@@ -190,6 +261,14 @@ export default function ShopPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const selectedLocation = useMemo(
+    () =>
+      dropoffLocations.find(
+        (loc) => String(loc.id) === String(selectedLocationId),
+      ) || null,
+    [dropoffLocations, selectedLocationId],
+  );
 
   const categoryDefs = useMemo(() => {
     const map: Map<string, { key: string; label: string; iconKey: string }> =
@@ -246,9 +325,10 @@ export default function ShopPage() {
   }, [products, q, activeCat, sort]);
 
   const summaryItems = useMemo(() => items.slice(0, 10), [items]);
+
   const deliveryBannerText = useMemo(
-    () => deriveDeliveryBannerText(windowState),
-    [windowState],
+    () => deriveDeliveryBannerText(selectedLocation, windowState),
+    [selectedLocation, windowState],
   );
 
   function summaryUnitLabel(p: any) {
@@ -343,24 +423,56 @@ export default function ShopPage() {
           style={{
             width: isMobile ? "100%" : "auto",
             display: "flex",
+            flexDirection: "column",
             gap: 10,
-            alignItems: "center",
+            alignItems: isMobile ? "stretch" : "flex-end",
             justifyContent: isMobile ? "flex-start" : "flex-end",
           }}
         >
-          <Text type="secondary" style={{ whiteSpace: "nowrap" }}>
-            Sort by:
-          </Text>
-          <Select
-            value={sort}
-            onChange={setSort}
-            style={{ width: isMobile ? "100%" : 220 }}
-            options={[
-              { value: "featured", label: "Best Sellers" },
-              { value: "price_asc", label: "Price: Low to High" },
-              { value: "price_desc", label: "Price: High to Low" },
-            ]}
-          />
+          <div
+            style={{
+              width: isMobile ? "100%" : "auto",
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              justifyContent: isMobile ? "flex-start" : "flex-end",
+            }}
+          >
+            <Text type="secondary" style={{ whiteSpace: "nowrap" }}>
+              Sort by:
+            </Text>
+            <Select
+              value={sort}
+              onChange={setSort}
+              style={{ width: isMobile ? "100%" : 220 }}
+              options={[
+                { value: "featured", label: "Best Sellers" },
+                { value: "price_asc", label: "Price: Low to High" },
+                { value: "price_desc", label: "Price: High to Low" },
+              ]}
+            />
+          </div>
+
+          <div
+            style={{
+              width: isMobile ? "100%" : 320,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+            }}
+          >
+            <Text type="secondary">Delivery location:</Text>
+            <Select
+              value={selectedLocationId ?? undefined}
+              onChange={setSelectedLocationId}
+              placeholder="Select delivery location"
+              style={{ width: "100%" }}
+              options={dropoffLocations.map((loc) => ({
+                value: loc.id,
+                label: loc.name,
+              }))}
+            />
+          </div>
         </div>
       </div>
 
