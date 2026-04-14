@@ -8,7 +8,6 @@ import {
   InputNumber,
   MenuProps,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -38,6 +37,7 @@ type ProductForm = {
   costPrice: number;
   stockQty: number;
   isActive: boolean;
+  isFifthQuarter: boolean;
   categoryId: string | null;
   cutType?: string;
   avgWeightValue?: number | null;
@@ -151,6 +151,7 @@ export default function ProductsTab({
     productForm.setFieldsValue({
       unit: "kg",
       isActive: true,
+      isFifthQuarter: false,
       stockQty: 0,
       retailPrice: 0,
       wholesalePrice: 0,
@@ -179,6 +180,7 @@ export default function ProductsTab({
       costPrice: Number((p as any).costPrice ?? 0),
       stockQty: p.stockQty,
       isActive: p.isActive,
+      isFifthQuarter: Boolean((p as any).isFifthQuarter),
       categoryId: p.categoryId ?? null,
       cutType: (p as any).cutType || "",
       avgWeightValue: value,
@@ -230,6 +232,7 @@ export default function ProductsTab({
         costPrice: Number((p as any).costPrice ?? 0),
         stockQty: p.stockQty,
         isActive: true,
+        isFifthQuarter: Boolean((p as any).isFifthQuarter),
         categoryId: p.categoryId ?? null,
         cutType: (p as any).cutType ?? "",
         avgWeightG: (p as any).avgWeightG ?? null,
@@ -308,6 +311,7 @@ export default function ProductsTab({
       costPrice: values.costPrice,
       stockQty: values.stockQty,
       isActive: values.isActive ?? true,
+      isFifthQuarter: values.isFifthQuarter ?? false,
       categoryId: values.categoryId ?? null,
       cutType: (values.cutType || "").trim(),
       avgWeightG,
@@ -335,6 +339,7 @@ export default function ProductsTab({
       fd.append("costPrice", String(payload.costPrice));
       fd.append("stockQty", String(payload.stockQty));
       fd.append("isActive", String(payload.isActive));
+      fd.append("isFifthQuarter", String(payload.isFifthQuarter));
       fd.append("categoryId", payload.categoryId ?? "");
       fd.append("cutType", payload.cutType || "");
       fd.append(
@@ -369,7 +374,11 @@ export default function ProductsTab({
     try {
       await api.post(`/api/admin/products/${wasteProduct.id}/waste`, {
         packsWasted: Number(values.packsWasted ?? 0),
-        weightG,
+        weightValue:
+          values.weightValue === null || values.weightValue === undefined
+            ? null
+            : Number(values.weightValue),
+        weightUnit: values.weightUnit ?? "g",
         reason: (values.reason || "").trim(),
       });
 
@@ -568,14 +577,22 @@ export default function ProductsTab({
       title: "Name",
       dataIndex: "name",
       key: "name",
-      width: 120,
+      width: 140,
       ellipsis: true,
+      render: (_: any, p: AdminProduct) => (
+        <Space size={8} wrap>
+          <span>{p.name}</span>
+          {(p as any).isFifthQuarter ? (
+            <Tag color="purple">5th Quarter</Tag>
+          ) : null}
+        </Space>
+      ),
     },
     {
       title: "Cut Type",
       dataIndex: "cutType",
       key: "cutType",
-      width: 80,
+      width: 100,
       render: (v: any) => {
         const s = typeof v === "string" ? v.trim() : "";
         return s ? <Tag>{s}</Tag> : <Tag color="default">—</Tag>;
@@ -615,7 +632,7 @@ export default function ProductsTab({
     {
       title: "Category",
       key: "category",
-      width: 80,
+      width: 120,
       render: (_: any, p: AdminProduct) =>
         p.category ? (
           <Space size={8}>
@@ -720,7 +737,7 @@ export default function ProductsTab({
                   pagination={false}
                   scroll={{ x: "max-content" }}
                   style={{ width: "100%" }}
-                />{" "}
+                />
               </Card>
             ))
           )}
@@ -813,6 +830,14 @@ export default function ProductsTab({
 
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input />
+          </Form.Item>
+
+          <Form.Item
+            name="isFifthQuarter"
+            label="5th quarter product"
+            valuePropName="checked"
+          >
+            <Switch />
           </Form.Item>
 
           <Form.Item name="cutType" label="Cut type (optional)">
