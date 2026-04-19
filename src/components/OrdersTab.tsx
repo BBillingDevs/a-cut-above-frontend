@@ -2,10 +2,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
+  Checkbox,
   Collapse,
   Drawer,
   Dropdown,
+  Input,
   InputNumber,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -17,6 +20,7 @@ import {
   Grid,
   Empty,
   Switch,
+  Alert,
 } from "antd";
 import type { MenuProps } from "antd";
 import {
@@ -24,7 +28,6 @@ import {
   DownloadOutlined,
   SettingOutlined,
   FilePdfOutlined,
-  CheckOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import * as XLSX from "xlsx";
@@ -39,9 +42,7 @@ const { Text, Title } = Typography;
 const { useBreakpoint } = Grid;
 
 const STATUS_OPTIONS = [
-  { label: "Order Placed", value: "ORDER_PLACED" },
   { label: "Ready to Pack", value: "READY_TO_PACK" },
-  { label: "Packed", value: "PACKED" },
   { label: "Out for Delivery", value: "OUT_FOR_DELIVERY" },
   { label: "Delivered", value: "DELIVERED" },
 ];
@@ -68,6 +69,17 @@ type LocationGroup = {
   unscheduled: AdminOrder[];
 };
 
+type WeightEntry = {
+  value?: number;
+  unit: "kg" | "g";
+};
+
+type PackingStateItem = {
+  itemId: string;
+  packed: boolean;
+  weights: WeightEntry[];
+};
+
 function money(v: any) {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
@@ -81,15 +93,6 @@ function fmtDate(dt?: string | null) {
 
 function isKgItem(it: AdminOrderItem) {
   return String((it as any).unit || "").toLowerCase() === "kg";
-}
-
-function weightsComplete(order: AdminOrder) {
-  const kgItems = (order.items || []).filter(isKgItem);
-  if (kgItems.length === 0) return true;
-  return kgItems.every((it) => {
-    const w = (it as any).weightKg;
-    return w !== null && w !== undefined && w !== "";
-  });
 }
 
 function recomputeOrderClient(order: AdminOrder) {
@@ -120,101 +123,149 @@ function recomputeOrderClient(order: AdminOrder) {
   return { items: nextItems, subtotal, total: subtotal };
 }
 
-function WeightCell({
-  item,
-  isMobile,
-  onWeightUpdate,
-}: {
-  item: AdminOrderItem;
-  isMobile: boolean;
-  onWeightUpdate: (
-    itemId: string,
-    weightValue: number | null,
-    weightUnit: "kg" | "g",
-  ) => Promise<void>;
-}) {
-  const raw = (item as any).weightKg;
-  const committedKg =
-    raw === null || raw === undefined || raw === "" ? null : Number(raw);
+function normalizeWeightToKg(
+  value: number | undefined | null,
+  unit: "kg" | "g",
+) {
+  if (
+    value === undefined ||
+    value === null ||
+    !Number.isFinite(Number(value))
+  ) {
+    return null;
+  }
+  return unit === "g" ? Number(value) / 1000 : Number(value);
+}
 
-  const [localValue, setLocalValue] = useState<number | undefined>(
-    committedKg === null ? undefined : committedKg,
-  );
-  const [localUnit, setLocalUnit] = useState<"kg" | "g">("kg");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setLocalValue(committedKg === null ? undefined : committedKg);
-    setLocalUnit("kg");
-  }, [committedKg]);
-
-  const normalizedLocalKg =
-    localValue === undefined
-      ? undefined
-      : localUnit === "g"
-        ? Number(localValue) / 1000
-        : Number(localValue);
-
-  const normalizedCommittedKg = committedKg === null ? undefined : committedKg;
-
-  const isDirty =
-    normalizedLocalKg !== normalizedCommittedKg || localUnit !== "kg";
-
-  async function save() {
-    setSaving(true);
-    try {
-      await onWeightUpdate(
-        item.id,
-        localValue === undefined ? null : Number(localValue),
-        localUnit,
-      );
-    } finally {
-      setSaving(false);
-    }
+function parseExistingWeights(item: any): WeightEntry[] {
+  const raw = item.packWeights;
+  if (!Array.isArray(raw)) {
+    const qty = Math.max(0, Math.round(Number(item.qty || 0)));
+    return Array.from({ length: qty }, () => ({
+      value: undefined,
+      unit: "kg" as const,
+    }));
   }
 
+  const parsed = raw.map((w: any) => ({
+    value:
+      w?.value === null || w?.value === undefined ? undefined : Number(w.value),
+    unit: w?.unit === "g" ? "g" : "kg",
+  }));
+
+  const qty = Math.max(0, Math.round(Number(item.qty || 0)));
+  while (parsed.length < qty) {
+    parsed.push({ value: undefined, unit: "kg" });
+  }
+  return parsed.slice(0, qty);
+}
+
+function PackingItemRow({
+  item,
+  state,
+  isMobile,
+  onChangePacked,
+  onChangeWeightValue,
+  onChangeWeightUnit,
+}: {
+  item: AdminOrderItem;
+  state: PackingStateItem;
+  isMobile: boolean;
+  onChangePacked: (checked: boolean) => void;
+  onChangeWeightValue: (index: number, value: number | undefined) => void;
+  onChangeWeightUnit: (index: number, unit: "kg" | "g") => void;
+}) {
+  const needsWeight = isKgItem(item);
+  const qty = Math.max(0, Math.round(Number((item as any).qty || 0)));
+
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: 6,
-        alignItems: "center",
-        flexWrap: "wrap",
-      }}
-    >
-      <InputNumber
-        value={localValue}
-        onChange={(v) => setLocalValue(v === null ? undefined : Number(v))}
-        onPressEnter={isDirty ? save : undefined}
-        placeholder={localUnit}
-        min={0}
-        step={localUnit === "g" ? 1 : 0.1}
-        style={{ width: isMobile ? 90 : 100 }}
-        size={isMobile ? "large" : "middle"}
-      />
+    <Card size="small">
+      <div style={{ display: "grid", gap: 10 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr",
+            gap: 12,
+            alignItems: "start",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 800 }}>
+              {String((item as any).productName || "Item")}
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Qty: {qty} • Unit:{" "}
+              {String((item as any).unit || "").toLowerCase()}
+            </Text>
+          </div>
 
-      <Select
-        value={localUnit}
-        onChange={(v) => setLocalUnit(v)}
-        style={{ width: 76 }}
-        size={isMobile ? "large" : "middle"}
-        options={[
-          { label: "kg", value: "kg" },
-          { label: "g", value: "g" },
-        ]}
-      />
+          <div
+            style={{
+              display: "flex",
+              justifyContent: isMobile ? "flex-start" : "flex-end",
+            }}
+          >
+            <Checkbox
+              checked={state.packed}
+              onChange={(e) => onChangePacked(e.target.checked)}
+            >
+              Packed
+            </Checkbox>
+          </div>
+        </div>
 
-      <Button
-        type={isDirty ? "primary" : "default"}
-        size={isMobile ? "large" : "small"}
-        icon={<CheckOutlined />}
-        loading={saving}
-        disabled={!isDirty}
-        onClick={save}
-      >
-        {isMobile ? "" : "Save"}
-      </Button>
-    </div>
+        {needsWeight ? (
+          <div style={{ display: "grid", gap: 8 }}>
+            {Array.from({ length: qty }).map((_, idx) => {
+              const entry = state.weights[idx] || {
+                value: undefined,
+                unit: "kg" as const,
+              };
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ minWidth: 56 }}>Pack {idx + 1}</Text>
+                  <InputNumber
+                    value={entry.value}
+                    onChange={(v) =>
+                      onChangeWeightValue(
+                        idx,
+                        v === null ? undefined : Number(v),
+                      )
+                    }
+                    placeholder="Weight"
+                    min={0}
+                    step={entry.unit === "g" ? 1 : 0.1}
+                    style={{ width: isMobile ? 120 : 140 }}
+                  />
+                  <Select
+                    value={entry.unit}
+                    onChange={(v) => onChangeWeightUnit(idx, v)}
+                    style={{ width: 80 }}
+                    options={[
+                      { label: "kg", value: "kg" },
+                      { label: "g", value: "g" },
+                    ]}
+                  />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {entry.value !== undefined
+                      ? `= ${(normalizeWeightToKg(entry.value, entry.unit) || 0).toFixed(3)} kg`
+                      : "Enter weight"}
+                  </Text>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </Card>
   );
 }
 
@@ -224,24 +275,20 @@ function OrderTable({
   expandedRowKeys,
   onExpandedRowKeysChange,
   onStatusUpdate,
-  onWeightUpdate,
   onDelete,
   selectedRowKeys,
   onSelectedRowKeysChange,
+  onOpenPacking,
 }: {
   orders: AdminOrder[];
   isMobile: boolean;
   expandedRowKeys: React.Key[];
   onExpandedRowKeysChange: (keys: React.Key[]) => void;
   onStatusUpdate: (orderId: string, status: string) => Promise<void>;
-  onWeightUpdate: (
-    itemId: string,
-    weightValue: number | null,
-    weightUnit: "kg" | "g",
-  ) => Promise<void>;
   onDelete: (orderId: string, orderNo: string) => Promise<void>;
   selectedRowKeys: React.Key[];
   onSelectedRowKeysChange: (keys: React.Key[]) => void;
+  onOpenPacking: (order: AdminOrder) => void;
 }) {
   const expandedColumns = useMemo(
     () =>
@@ -275,15 +322,22 @@ function OrderTable({
         {
           title: "Weight",
           key: "weightKg",
-          width: isMobile ? 210 : 240,
+          width: 160,
           render: (_: any, it: AdminOrderItem) => {
             if (!isKgItem(it)) return <Tag>Pack</Tag>;
-            return (
-              <WeightCell
-                item={it}
-                isMobile={isMobile}
-                onWeightUpdate={onWeightUpdate}
-              />
+            const weights = Array.isArray((it as any).packWeights)
+              ? (it as any).packWeights
+              : [];
+            return weights.length ? (
+              <div style={{ display: "grid", gap: 4 }}>
+                {weights.map((w: any, i: number) => (
+                  <Tag key={i} color="green">
+                    Pack {i + 1}: {Number(w.value || 0)} {w.unit || "kg"}
+                  </Tag>
+                ))}
+              </div>
+            ) : (
+              <Tag color="gold">Missing</Tag>
             );
           },
         },
@@ -297,7 +351,7 @@ function OrderTable({
           },
         },
       ] as any[],
-    [isMobile, onWeightUpdate],
+    [],
   );
 
   const columns = useMemo(
@@ -355,14 +409,24 @@ function OrderTable({
           ),
         },
         {
-          title: "Weights",
-          key: "weights",
+          title: "Packed By",
+          dataIndex: "packerInitials",
+          key: "packerInitials",
           width: 110,
+          render: (v: any) =>
+            v ? <Tag color="blue">{String(v).toUpperCase()}</Tag> : "—",
+        },
+        {
+          title: "Packing",
+          key: "packing",
+          width: 150,
           render: (_: any, row: AdminOrder) =>
-            weightsComplete(row) ? (
-              <Tag color="green">Complete</Tag>
+            row.status === "DELIVERED" ? (
+              <Tag color="green">Delivered</Tag>
             ) : (
-              <Tag color="gold">Missing</Tag>
+              <Button type="primary" onClick={() => onOpenPacking(row)}>
+                Pack Order
+              </Button>
             ),
         },
         {
@@ -402,7 +466,7 @@ function OrderTable({
           ),
         },
       ] as any[],
-    [isMobile, onDelete, onStatusUpdate],
+    [isMobile, onDelete, onOpenPacking, onStatusUpdate],
   );
 
   const rowSelection = {
@@ -418,7 +482,7 @@ function OrderTable({
       dataSource={orders}
       columns={columns}
       size={isMobile ? "small" : "middle"}
-      scroll={isMobile ? { x: 760 } : undefined}
+      scroll={isMobile ? { x: 1040 } : undefined}
       pagination={{ pageSize: 20, showSizeChanger: false }}
       expandable={{
         expandedRowKeys,
@@ -432,6 +496,15 @@ function OrderTable({
           );
           return (
             <div style={{ padding: isMobile ? 4 : 8 }}>
+              {(order as any).packerInitials ? (
+                <div style={{ marginBottom: 10 }}>
+                  <Text type="secondary">Packed by: </Text>
+                  <Tag color="blue">
+                    {String((order as any).packerInitials).toUpperCase()}
+                  </Tag>
+                </div>
+              ) : null}
+
               <div
                 style={{
                   display: "grid",
@@ -471,7 +544,7 @@ function OrderTable({
                 dataSource={stableItems}
                 pagination={false}
                 columns={expandedColumns}
-                scroll={isMobile ? { x: 620 } : undefined}
+                scroll={isMobile ? { x: 720 } : undefined}
               />
             </div>
           );
@@ -500,7 +573,7 @@ export default function OrdersTab({
   const [filterLocationId, setFilterLocationId] = useState("");
   const [filterScheduleId, setFilterScheduleId] = useState("");
 
-  const [bulkStatus, setBulkStatus] = useState("ORDER_PLACED");
+  const [bulkStatus, setBulkStatus] = useState("READY_TO_PACK");
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
 
@@ -515,9 +588,18 @@ export default function OrdersTab({
 
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
 
+  const [packingOrder, setPackingOrder] = useState<AdminOrder | null>(null);
+  const [packingItems, setPackingItems] = useState<
+    Record<string, PackingStateItem>
+  >({});
+  const [packingInitialsOpen, setPackingInitialsOpen] = useState(false);
+  const [packerInitials, setPackerInitials] = useState("");
+  const [savingPacking, setSavingPacking] = useState(false);
+
   useEffect(() => {
     const normalized = (orders || []).map((o) => ({
       ...o,
+      status: o.status === "ORDER_PLACED" ? "READY_TO_PACK" : o.status,
       ...recomputeOrderClient(o),
     }));
     setDisplayOrders(normalized);
@@ -652,62 +734,137 @@ export default function OrdersTab({
     }
   }
 
-  async function handleWeightUpdate(
-    itemId: string,
-    weightValue: number | null,
-    weightUnit: "kg" | "g",
-  ) {
-    const affectedOrder = displayOrders.find((o) =>
-      (o.items || []).some((it: any) => String(it.id) === String(itemId)),
-    );
-    const affectedOrderId = affectedOrder?.id;
+  function openPacking(order: AdminOrder) {
+    const state: Record<string, PackingStateItem> = {};
+    for (const item of order.items || []) {
+      state[item.id] = {
+        itemId: item.id,
+        packed: false,
+        weights: isKgItem(item) ? parseExistingWeights(item as any) : [],
+      };
+    }
+    setPackingOrder(order);
+    setPackingItems(state);
+  }
 
-    try {
-      await api.put(`/api/admin/order-items/${itemId}/weight`, {
-        weightValue,
-        weightUnit,
-      });
+  function getPackingValidation(order: AdminOrder | null) {
+    if (!order) {
+      return { missing: [], ok: false };
+    }
 
-      setDisplayOrders((prev) =>
-        prev.map((o) => {
-          const items = o.items || [];
-          const idx = items.findIndex(
-            (it: any) => String(it.id) === String(itemId),
-          );
-          if (idx === -1) return o;
+    const missing: string[] = [];
 
-          const normalizedKg =
-            weightValue === null
-              ? null
-              : weightUnit === "g"
-                ? Number(weightValue) / 1000
-                : Number(weightValue);
+    for (const item of order.items || []) {
+      const state = packingItems[item.id];
+      const name = String((item as any).productName || "Item");
 
-          const nextItems = items.map((it: any) =>
-            String(it.id) === String(itemId)
-              ? {
-                ...it,
-                weightKg: normalizedKg === null ? null : Number(normalizedKg),
-              }
-              : it,
-          );
-
-          const nextOrder = { ...o, items: nextItems } as any;
-          return { ...nextOrder, ...recomputeOrderClient(nextOrder) };
-        }),
-      );
-
-      if (affectedOrderId) {
-        setExpandedRowKeys((prev) =>
-          prev.includes(affectedOrderId) ? prev : [...prev, affectedOrderId],
-        );
+      if (!state?.packed) {
+        missing.push(`${name}: packed not ticked`);
+        continue;
       }
 
-      message.success("Weight saved");
+      if (isKgItem(item)) {
+        const qty = Math.max(0, Math.round(Number((item as any).qty || 0)));
+        const weights = state.weights || [];
+
+        if (weights.length !== qty) {
+          missing.push(`${name}: ${qty} weights required`);
+          continue;
+        }
+
+        const hasMissingWeight = weights.some((w) => {
+          const normalized = normalizeWeightToKg(w.value, w.unit);
+          return normalized === null || normalized <= 0;
+        });
+
+        if (hasMissingWeight) {
+          missing.push(`${name}: one or more weights missing`);
+        }
+      }
+    }
+
+    return {
+      missing,
+      ok: missing.length === 0,
+    };
+  }
+
+  async function savePacking() {
+    const validation = getPackingValidation(packingOrder);
+
+    if (!validation.ok) {
+      message.warning(
+        "Please complete all per-pack weights and packing checkboxes.",
+      );
+      return;
+    }
+
+    setPackingInitialsOpen(true);
+  }
+
+  async function confirmSavePacking() {
+    if (!packingOrder) return;
+
+    const initials = packerInitials.trim().toUpperCase();
+    if (!initials) {
+      message.error("Enter packer initials");
+      return;
+    }
+
+    const validation = getPackingValidation(packingOrder);
+    if (!validation.ok) {
+      message.warning(
+        "Please complete all per-pack weights and packing checkboxes.",
+      );
+      setPackingInitialsOpen(false);
+      return;
+    }
+
+    setSavingPacking(true);
+    try {
+      const itemsPayload = (packingOrder.items || []).map((item) => {
+        const state = packingItems[item.id];
+        return {
+          itemId: item.id,
+          packed: !!state?.packed,
+          weights: isKgItem(item)
+            ? (state?.weights || []).map((w) => ({
+              value: w.value ?? 0,
+              unit: w.unit,
+            }))
+            : [],
+        };
+      });
+
+      const res = await api.put(`/api/admin/orders/${packingOrder.id}/pack`, {
+        items: itemsPayload,
+        packerInitials: initials,
+        sendWhatsApp,
+      });
+
+      const updated = res.data?.order as AdminOrder;
+
+      setDisplayOrders((prev) =>
+        prev.map((o) =>
+          String(o.id) === String(updated.id)
+            ? ({ ...updated, ...recomputeOrderClient(updated) } as any)
+            : o,
+        ),
+      );
+
+      message.success("Order packed and moved to Out for Delivery");
+      setPackingInitialsOpen(false);
+      setPackerInitials("");
+      setPackingOrder(null);
+      setPackingItems({});
+      onReload();
     } catch (e: any) {
-      message.error(e?.response?.data?.error || "Weight update failed");
+      message.error(e?.response?.data?.error || "Failed to save packing");
+    } finally {
+      setSavingPacking(false);
     }
   }
+
   async function applyBulkStatus() {
     if (selectedRowKeys.length === 0) {
       message.warning("Select at least one order");
@@ -739,6 +896,7 @@ export default function OrdersTab({
       setBulkLoading(false);
     }
   }
+
   function exportPackingList() {
     const ordersToExport = packingScheduleId
       ? displayOrders.filter(
@@ -901,10 +1059,10 @@ export default function OrdersTab({
                 expandedRowKeys={expandedRowKeys}
                 onExpandedRowKeysChange={setExpandedRowKeys}
                 onStatusUpdate={handleStatusUpdate}
-                onWeightUpdate={handleWeightUpdate}
                 onDelete={handleDelete}
                 selectedRowKeys={selectedRowKeys}
                 onSelectedRowKeysChange={setSelectedRowKeys}
+                onOpenPacking={openPacking}
               />
             ),
           };
@@ -930,10 +1088,10 @@ export default function OrdersTab({
                   expandedRowKeys={expandedRowKeys}
                   onExpandedRowKeysChange={setExpandedRowKeys}
                   onStatusUpdate={handleStatusUpdate}
-                  onWeightUpdate={handleWeightUpdate}
                   onDelete={handleDelete}
                   selectedRowKeys={selectedRowKeys}
                   onSelectedRowKeysChange={setSelectedRowKeys}
+                  onOpenPacking={openPacking}
                 />
               ),
             },
@@ -974,6 +1132,8 @@ export default function OrdersTab({
       };
     });
   }, [grouped, isMobile, expandedRowKeys, selectedRowKeys, sendWhatsApp]);
+
+  const packingValidation = getPackingValidation(packingOrder);
 
   return (
     <Card loading={loading} styles={{ body: { padding: isMobile ? 8 : 16 } }}>
@@ -1300,6 +1460,151 @@ export default function OrdersTab({
           </Button>
         </div>
       </Drawer>
+
+      <Modal
+        title={
+          packingOrder ? `Pack Order — ${packingOrder.orderNo}` : "Pack Order"
+        }
+        open={!!packingOrder}
+        onCancel={() => {
+          setPackingOrder(null);
+          setPackingItems({});
+        }}
+        onOk={savePacking}
+        okText="Save Packing"
+        width={950}
+      >
+        {packingOrder ? (
+          <div style={{ display: "grid", gap: 14 }}>
+            <Alert
+              type={packingValidation.ok ? "success" : "warning"}
+              showIcon
+              message={
+                packingValidation.ok
+                  ? "All items are ready to save."
+                  : "All items must be packed. Kg items need one weight per pack ordered."
+              }
+              description={
+                !packingValidation.ok
+                  ? packingValidation.missing.join(" | ")
+                  : undefined
+              }
+            />
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile
+                  ? "1fr"
+                  : "repeat(3, minmax(0, 1fr))",
+                gap: 12,
+              }}
+            >
+              <Card size="small">
+                <Text type="secondary">Customer</Text>
+                <div style={{ fontWeight: 800, marginTop: 4 }}>
+                  {packingOrder.customerName}
+                </div>
+              </Card>
+              <Card size="small">
+                <Text type="secondary">Status</Text>
+                <div style={{ fontWeight: 800, marginTop: 4 }}>
+                  {packingOrder.status === "ORDER_PLACED"
+                    ? "Ready to Pack"
+                    : packingOrder.status.replace(/_/g, " ")}
+                </div>
+              </Card>
+              <Card size="small">
+                <Text type="secondary">Order</Text>
+                <div style={{ fontWeight: 800, marginTop: 4 }}>
+                  {packingOrder.orderNo}
+                </div>
+              </Card>
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              {(packingOrder.items || []).map((item) => {
+                const state = packingItems[item.id] || {
+                  itemId: item.id,
+                  packed: false,
+                  weights: isKgItem(item)
+                    ? parseExistingWeights(item as any)
+                    : [],
+                };
+
+                return (
+                  <PackingItemRow
+                    key={item.id}
+                    item={item}
+                    state={state}
+                    isMobile={isMobile}
+                    onChangePacked={(checked) =>
+                      setPackingItems((prev) => ({
+                        ...prev,
+                        [item.id]: {
+                          ...state,
+                          packed: checked,
+                        },
+                      }))
+                    }
+                    onChangeWeightValue={(index, value) =>
+                      setPackingItems((prev) => {
+                        const nextWeights = [...(state.weights || [])];
+                        nextWeights[index] = {
+                          ...(nextWeights[index] || { unit: "kg" }),
+                          value,
+                        };
+                        return {
+                          ...prev,
+                          [item.id]: {
+                            ...state,
+                            weights: nextWeights,
+                          },
+                        };
+                      })
+                    }
+                    onChangeWeightUnit={(index, unit) =>
+                      setPackingItems((prev) => {
+                        const nextWeights = [...(state.weights || [])];
+                        nextWeights[index] = {
+                          ...(nextWeights[index] || { value: undefined }),
+                          unit,
+                        };
+                        return {
+                          ...prev,
+                          [item.id]: {
+                            ...state,
+                            weights: nextWeights,
+                          },
+                        };
+                      })
+                    }
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        title="Packer Initials"
+        open={packingInitialsOpen}
+        onCancel={() => setPackingInitialsOpen(false)}
+        onOk={confirmSavePacking}
+        okText="Confirm Save"
+        confirmLoading={savingPacking}
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <Text>Enter the initials of the person packing this order.</Text>
+          <Input
+            value={packerInitials}
+            onChange={(e) => setPackerInitials(e.target.value.toUpperCase())}
+            placeholder="e.g. BB"
+            maxLength={8}
+          />
+        </div>
+      </Modal>
     </Card>
   );
 }

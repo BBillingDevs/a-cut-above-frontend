@@ -78,6 +78,35 @@ body {
   min-width: 0;
 }
 
+/* Sticky search just under the header */
+.aca-searchSticky {
+  position: sticky;
+  top: 72px;
+  /* sits under .aca-header */
+  z-index: 45;
+  margin-top: 10px;
+  padding-top: 6px;
+  padding-bottom: 8px;
+  background: var(--aca-bg);
+}
+
+/* Sidebar should stop below the sticky search */
+.aca-sidebar__sticky {
+  position: sticky;
+  top: 190px;
+  /* 72 header + ~58 search + spacing */
+  display: grid;
+  gap: 14px;
+  align-self: start;
+}
+
+/* Make sure sticky can work */
+.aca-page,
+.aca-shopGrid,
+.aca-products {
+  overflow: visible;
+}
+
 .aca-header__right {
   display: flex;
   gap: 10px;
@@ -204,9 +233,10 @@ body {
 
 .aca-sidebar__sticky {
   position: sticky;
-  top: 120px;
+  top: 150px;
   display: grid;
   gap: 14px;
+  align-self: start;
 }
 
 .aca-sidebarCard {

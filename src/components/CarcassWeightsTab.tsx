@@ -422,7 +422,7 @@ export default function CarcassWeightsTab({
         items,
       });
 
-      message.success("Dry weights recorded");
+      message.success("Dry weights saved");
       setDryModalOpen(false);
       setDryTarget(null);
       onReload();
@@ -451,6 +451,10 @@ export default function CarcassWeightsTab({
     return (row.dryWeights || []).reduce((sum, item) => {
       return !item.product?.isFifthQuarter ? sum + n(item.totalWeightKg) : sum;
     }, 0);
+  }
+
+  function hasDryWeights(row: CarcassBatchRecord) {
+    return (row.dryWeights || []).some((x) => !x.product?.isFifthQuarter);
   }
 
   const columns = [
@@ -502,17 +506,13 @@ export default function CarcassWeightsTab({
     {
       title: "",
       key: "actions",
-      width: 280,
+      width: 320,
       render: (_: any, row: CarcassBatchRecord) =>
         canManage ? (
           <Space wrap>
-            {!row.dryWeights ||
-              row.dryWeights.filter((x) => !x.product?.isFifthQuarter).length ===
-              0 ? (
-              <Button type="primary" onClick={() => openAddDryWeights(row)}>
-                Add Dry Weights
-              </Button>
-            ) : null}
+            <Button type="primary" onClick={() => openAddDryWeights(row)}>
+              {hasDryWeights(row) ? "Edit Dry Weights" : "Add Dry Weights"}
+            </Button>
             <Button onClick={() => openEditWet(row)}>Edit</Button>
             <Popconfirm
               title="Delete this record?"
@@ -642,10 +642,31 @@ export default function CarcassWeightsTab({
                 </div>
 
                 <div>
-                  <Text strong>Dry Weight Products</Text>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      marginBottom: 10,
+                      marginTop: 6,
+                    }}
+                  >
+                    <Text strong>Dry Weight Products</Text>
+                    {canManage ? (
+                      <Button
+                        type="primary"
+                        onClick={() => openAddDryWeights(row)}
+                      >
+                        {hasDryWeights(row)
+                          ? "Edit Dry Weights"
+                          : "Add Dry Weights"}
+                      </Button>
+                    ) : null}
+                  </div>
+
                   <Table
                     size="small"
-                    style={{ marginTop: 10 }}
                     rowKey={(r: any) => r.id}
                     dataSource={dryRows}
                     pagination={false}
@@ -886,8 +907,8 @@ export default function CarcassWeightsTab({
       <Modal
         title={
           dryTarget
-            ? `Add Dry Weights — ${dryTarget.animalId}`
-            : "Add Dry Weights"
+            ? `${hasDryWeights(dryTarget) ? "Edit" : "Add"} Dry Weights — ${dryTarget.animalId}`
+            : "Dry Weights"
         }
         open={dryModalOpen}
         onCancel={() => {

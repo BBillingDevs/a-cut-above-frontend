@@ -70,6 +70,7 @@ export type AdminOrderItem = {
   unitPrice?: string | number;
   lineTotal?: string | number;
   weightKg?: string | number | null;
+  packWeights?: Array<{ value: number; unit: "kg" | "g" }>;
   wetWeightKg?: string | number | null;
   dryWeightKg?: string | number | null;
 };
@@ -79,20 +80,20 @@ export type AdminOrder = {
   orderNo: string;
   customerName: string;
   customerPhone: string;
+  customerEmail?: string | null;
   pricingTier: string;
   status: string;
-  total: string | number;
+  notes?: string | null;
+  personalAddress?: string | null;
+  packerInitials?: string | null;
+  subtotal: number;
+  total: number;
   createdAt: string;
-  windowId: string | null;
+  updatedAt: string;
   items: AdminOrderItem[];
-  deliveryWindow?: string | null;
-
-  dropoffLocationId?: string | null;
-  deliveryScheduleId?: string | null;
-  dropoffLocation?: {
-    id: string;
-    name: string;
-  } | null;
+  dropoffLocation?: any;
+  deliverySchedule?: any;
+  window?: any;
 };
 
 export type AdminWindow = {
@@ -338,23 +339,6 @@ export default function AdminDashboardPage() {
               },
             ]
             : []),
-
-          ...(canViewCategories
-            ? [
-              {
-                key: "categories",
-                label: "Categories",
-                children: (
-                  <CategoriesTab
-                    loading={loading}
-                    categories={categories}
-                    onReload={loadAll}
-                  />
-                ),
-              },
-            ]
-            : []),
-
           ...(canViewProducts
             ? [
               {
@@ -372,15 +356,15 @@ export default function AdminDashboardPage() {
             ]
             : []),
 
-          ...(canViewWaste
+          ...(canViewCategories
             ? [
               {
-                key: "waste",
-                label: "Waste",
+                key: "categories",
+                label: "Categories",
                 children: (
-                  <WasteManagementTab
+                  <CategoriesTab
                     loading={loading}
-                    products={products}
+                    categories={categories}
                     onReload={loadAll}
                   />
                 ),
@@ -395,22 +379,6 @@ export default function AdminDashboardPage() {
                 label: "Deliveries",
                 children: (
                   <DropoffLocationsTab loading={loading} onReload={loadAll} />
-                ),
-              },
-            ]
-            : []),
-
-          ...(canViewWindows
-            ? [
-              {
-                key: "windows",
-                label: "Order Windows",
-                children: (
-                  <WindowsTab
-                    loading={loading}
-                    windows={windows}
-                    onReload={loadAll}
-                  />
                 ),
               },
             ]
@@ -443,6 +411,38 @@ export default function AdminDashboardPage() {
                     loading={loading}
                     users={users}
                     currentPermissions={myPermissions}
+                    onReload={loadAll}
+                  />
+                ),
+              },
+            ]
+            : []),
+
+          ...(canViewWaste
+            ? [
+              {
+                key: "waste",
+                label: "Waste",
+                children: (
+                  <WasteManagementTab
+                    loading={loading}
+                    products={products}
+                    onReload={loadAll}
+                  />
+                ),
+              },
+            ]
+            : []),
+
+          ...(canViewWindows
+            ? [
+              {
+                key: "windows",
+                label: "Order Windows",
+                children: (
+                  <WindowsTab
+                    loading={loading}
+                    windows={windows}
                     onReload={loadAll}
                   />
                 ),

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+// src/pages/public/ShopPage.tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -24,6 +25,7 @@ import {
   PlusOutlined,
   DeleteOutlined,
   ShoppingCartOutlined,
+  ArrowUpOutlined,
 } from "@ant-design/icons";
 import { api, RAILWAY_BASE } from "../../api/client";
 import type { Product } from "../../types";
@@ -33,6 +35,11 @@ import { IconPreview } from "../../components/iconCatalog";
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
+
+const PREFERRED_LOCATION_KEY = "aca_preferred_dropoff_location";
+const HEADER_STICKY_OFFSET = 95;
+const SEARCH_STICKY_HEIGHT = 58;
+const SIDEBAR_STICKY_TOP = HEADER_STICKY_OFFSET + SEARCH_STICKY_HEIGHT + 12;
 
 type WindowState = {
   open: boolean;
@@ -145,6 +152,7 @@ export default function ShopPage() {
   const isMobile = !screens.md;
   const showSummary = !!screens.lg;
   const [cartOpen, setCartOpen] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
 
   const [products, setProducts] = useState([] as PricedProduct[]);
   const [loading, setLoading] = useState(false);
@@ -158,6 +166,8 @@ export default function ShopPage() {
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(
     null,
   );
+  const [locationPromptOpen, setLocationPromptOpen] = useState(false);
+  const didCheckPromptRef = useRef(false);
 
   const [qtyMap, setQtyMap] = useState({} as Record<string, number>);
   const [activeCat, setActiveCat] = useState("all");
@@ -176,6 +186,16 @@ export default function ShopPage() {
     setShopSearch(raw ? decodeURIComponent(raw) : "");
   }, [location.search]);
 
+  useEffect(() => {
+    const onScroll = () => {
+      setShowBackToTop(window.scrollY > 280);
+    };
+
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   function setUrlQuery(next: string) {
     const params = new URLSearchParams(location.search);
     const cleaned = next.trim();
@@ -186,6 +206,13 @@ export default function ShopPage() {
       { pathname: location.pathname, search: qs ? `?${qs}` : "" },
       { replace: true },
     );
+  }
+
+  function savePreferredLocation(id: string | null) {
+    if (!id) return;
+    localStorage.setItem(PREFERRED_LOCATION_KEY, id);
+    setSelectedLocationId(id);
+    setLocationPromptOpen(false);
   }
 
   async function load() {
@@ -221,8 +248,16 @@ export default function ShopPage() {
 
       setDropoffLocations(activeLocations);
 
+      const savedLocationId = localStorage.getItem(PREFERRED_LOCATION_KEY);
+
       setSelectedLocationId((prev) => {
         if (prev && activeLocations.some((loc) => loc.id === prev)) return prev;
+        if (
+          savedLocationId &&
+          activeLocations.some((loc) => loc.id === savedLocationId)
+        ) {
+          return savedLocationId;
+        }
         return activeLocations[0]?.id ?? null;
       });
 
@@ -262,6 +297,22 @@ export default function ShopPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (didCheckPromptRef.current) return;
+    if (!dropoffLocations.length) return;
+
+    didCheckPromptRef.current = true;
+
+    const savedLocationId = localStorage.getItem(PREFERRED_LOCATION_KEY);
+    const hasValidSaved =
+      !!savedLocationId &&
+      dropoffLocations.some((loc) => loc.id === savedLocationId);
+
+    if (!hasValidSaved) {
+      setLocationPromptOpen(true);
+    }
+  }, [dropoffLocations]);
+
   const selectedLocation = useMemo(
     () =>
       dropoffLocations.find(
@@ -269,6 +320,14 @@ export default function ShopPage() {
       ) || null,
     [dropoffLocations, selectedLocationId],
   );
+
+  const locationUnavailable = useMemo(() => {
+    if (!selectedLocation) return true;
+    return !selectedLocation.nextSchedule?.deliveryDate;
+  }, [selectedLocation]);
+
+  const locationUnavailableMessage =
+    "Unfortunately there are no deliveries to that location at the current moment, please check back in moment as the issue should be resolved shortly.";
 
   const categoryDefs = useMemo(() => {
     const map: Map<string, { key: string; label: string; iconKey: string }> =
@@ -368,6 +427,11 @@ export default function ShopPage() {
   }
 
   function confirmAddToCart(p: PricedProduct, desiredQty: number) {
+    if (locationUnavailable) {
+      message.warning(locationUnavailableMessage);
+      return;
+    }
+
     const remaining = remainingStock(p);
 
     if (remaining !== null && remaining <= 0) {
@@ -464,7 +528,7 @@ export default function ShopPage() {
             <Text type="secondary">Delivery location:</Text>
             <Select
               value={selectedLocationId ?? undefined}
-              onChange={setSelectedLocationId}
+              onChange={savePreferredLocation}
               placeholder="Select delivery location"
               style={{ width: "100%" }}
               options={dropoffLocations.map((loc) => ({
@@ -476,30 +540,36 @@ export default function ShopPage() {
         </div>
       </div>
 
-      <div className="aca-search" style={{ marginTop: 10 }}>
-        <Input
-          allowClear
-          value={shopSearch}
-          onChange={(e) => {
-            const next = e.target.value;
-            setShopSearch(next);
-            setUrlQuery(next);
-          }}
-          onPressEnter={() => setUrlQuery(shopSearch)}
-          prefix={<SearchOutlined style={{ color: "rgba(0,0,0,0.35)" }} />}
-          placeholder="Search for ribeye, wors, mince..."
-        />
+      <div
+        id="shop-sticky-start"
+        style={{
+          position: "sticky",
+          top: HEADER_STICKY_OFFSET,
+          zIndex: 40,
+          marginTop: 10,
+          paddingTop: 6,
+          paddingBottom: 8,
+          background: "var(--aca-bg)",
+        }}
+      >
+        <div className="aca-search">
+          <Input
+            allowClear
+            value={shopSearch}
+            onChange={(e) => {
+              const next = e.target.value;
+              setShopSearch(next);
+              setUrlQuery(next);
+            }}
+            onPressEnter={() => setUrlQuery(shopSearch)}
+            prefix={<SearchOutlined style={{ color: "rgba(0,0,0,0.35)" }} />}
+            placeholder="Search for ribeye, wors, mince..."
+          />
+        </div>
       </div>
 
       {deliveryBannerText ? (
-        <div
-          style={{
-            position: "sticky",
-            top: 70,
-            zIndex: 20,
-            marginTop: 12,
-          }}
-        >
+        <div style={{ marginTop: 12 }}>
           <div
             style={{
               background: "var(--aca-forest)",
@@ -516,6 +586,12 @@ export default function ShopPage() {
           >
             {deliveryBannerText}
           </div>
+        </div>
+      ) : null}
+
+      {locationUnavailable && selectedLocation ? (
+        <div style={{ marginTop: 12 }}>
+          <Alert type="warning" showIcon message={locationUnavailableMessage} />
         </div>
       ) : null}
 
@@ -591,10 +667,23 @@ export default function ShopPage() {
       >
         {!isMobile ? (
           <aside
-            style={{ position: showSummary ? "sticky" : "static", top: 16 }}
+            style={{
+              position: showSummary ? "sticky" : "static",
+              top: showSummary ? SIDEBAR_STICKY_TOP : undefined,
+              alignSelf: "start",
+              overflow: "visible",
+            }}
           >
-            <div className="aca-sidebarCard">
-              <h3 className="aca-sidebarTitle">Categories</h3>
+            <div
+              className="aca-sidebarCard"
+              style={{ overflow: "visible", paddingTop: 14 }}
+            >
+              <h3
+                className="aca-sidebarTitle"
+                style={{ marginTop: 0, paddingTop: 4 }}
+              >
+                Categories
+              </h3>
               <div className="aca-catList">
                 {categoryDefs.map((c) => (
                   <button
@@ -743,6 +832,7 @@ export default function ShopPage() {
                                   danger
                                   onClick={() => remove(row.product.id)}
                                   icon={<DeleteOutlined />}
+                                  disabled={locationUnavailable}
                                 />
                                 <div
                                   style={{
@@ -759,7 +849,7 @@ export default function ShopPage() {
                                     size="small"
                                     type="text"
                                     icon={<MinusOutlined />}
-                                    disabled={qty <= 1}
+                                    disabled={qty <= 1 || locationUnavailable}
                                     onClick={() =>
                                       setQty(
                                         row.product.id,
@@ -788,7 +878,10 @@ export default function ShopPage() {
                                     type="text"
                                     icon={<PlusOutlined />}
                                     disabled={
-                                      !prod ? false : remainingStock(prod) === 0
+                                      locationUnavailable ||
+                                      (!prod
+                                        ? false
+                                        : remainingStock(prod) === 0)
                                     }
                                     onClick={() => {
                                       if (!prod)
@@ -821,7 +914,7 @@ export default function ShopPage() {
                   <Button
                     type="primary"
                     block
-                    disabled={items.length === 0}
+                    disabled={items.length === 0 || locationUnavailable}
                     onClick={() => navigate("/checkout")}
                   >
                     Go to checkout
@@ -863,6 +956,7 @@ export default function ShopPage() {
               const addDisabled =
                 !windowState.open ||
                 soldOut ||
+                locationUnavailable ||
                 (remaining !== null && remaining <= 0);
               const avgWeightLabel = fmtGrams(p.avgWeightG);
 
@@ -1047,7 +1141,11 @@ export default function ShopPage() {
                         className="aca-addBtn"
                         block
                       >
-                        {addDisabled ? "Sold out" : "Add to cart"}
+                        {locationUnavailable
+                          ? "Unavailable"
+                          : addDisabled
+                            ? "Sold out"
+                            : "Add to cart"}
                       </Button>
                     </div>
                   </Card>
@@ -1057,6 +1155,36 @@ export default function ShopPage() {
           </Row>
         </section>
       </div>
+
+      <Modal
+        title="Choose your delivery location"
+        open={locationPromptOpen}
+        closable={false}
+        maskClosable={false}
+        cancelButtonProps={{ style: { display: "none" } }}
+        okButtonProps={{ style: { display: "none" } }}
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <Text>Please select your preferred delivery location.</Text>
+          <Select
+            value={selectedLocationId ?? undefined}
+            onChange={setSelectedLocationId}
+            placeholder="Select delivery location"
+            style={{ width: "100%" }}
+            options={dropoffLocations.map((loc) => ({
+              value: loc.id,
+              label: loc.name,
+            }))}
+          />
+          <Button
+            type="primary"
+            disabled={!selectedLocationId}
+            onClick={() => savePreferredLocation(selectedLocationId)}
+          >
+            Save location
+          </Button>
+        </div>
+      </Modal>
 
       {isMobile ? (
         <>
@@ -1068,7 +1196,18 @@ export default function ShopPage() {
             }
             tooltip="Cart"
             onClick={() => setCartOpen(true)}
+            style={{ right: 24, bottom: showBackToTop ? 96 : 24 }}
           />
+
+          {showBackToTop ? (
+            <FloatButton
+              icon={<ArrowUpOutlined />}
+              tooltip="Back to top"
+              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              style={{ right: 24, bottom: 24 }}
+            />
+          ) : null}
+
           <Drawer
             title={`Cart (${items.length})`}
             open={cartOpen}
@@ -1174,6 +1313,7 @@ export default function ShopPage() {
                             danger
                             onClick={() => remove(row.product.id)}
                             icon={<DeleteOutlined />}
+                            disabled={locationUnavailable}
                           />
                         </div>
 
@@ -1187,7 +1327,7 @@ export default function ShopPage() {
                         >
                           <Button
                             icon={<MinusOutlined />}
-                            disabled={qty <= 1}
+                            disabled={qty <= 1 || locationUnavailable}
                             onClick={() =>
                               setQty(row.product.id, Math.max(1, qty - 1))
                             }
@@ -1196,7 +1336,8 @@ export default function ShopPage() {
                           <Button
                             icon={<PlusOutlined />}
                             disabled={
-                              !prod ? false : remainingStock(prod) === 0
+                              locationUnavailable ||
+                              (!prod ? false : remainingStock(prod) === 0)
                             }
                             onClick={() => {
                               if (!prod) return setQty(row.product.id, qty + 1);
@@ -1232,7 +1373,7 @@ export default function ShopPage() {
                 type="primary"
                 block
                 size="large"
-                disabled={items.length === 0}
+                disabled={items.length === 0 || locationUnavailable}
                 onClick={() => navigate("/checkout")}
               >
                 Go to checkout
@@ -1240,6 +1381,13 @@ export default function ShopPage() {
             </div>
           </Drawer>
         </>
+      ) : showBackToTop ? (
+        <FloatButton
+          icon={<ArrowUpOutlined />}
+          tooltip="Back to top"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          style={{ right: 24, bottom: 24 }}
+        />
       ) : null}
     </div>
   );
