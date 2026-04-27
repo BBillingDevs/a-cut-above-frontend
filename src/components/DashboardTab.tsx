@@ -14,18 +14,6 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { Dayjs } from "dayjs";
-import {
-  BarChart,
-  Bar,
-  CartesianGrid,
-  Legend,
-  LineChart,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 import type {
   AdminOrder,
@@ -62,6 +50,7 @@ function isKgItem(it: AdminOrderItem) {
 function weightsComplete(order: AdminOrder) {
   const kgItems = (order.items || []).filter(isKgItem);
   if (kgItems.length === 0) return true;
+
   return kgItems.every((it) => {
     const w = (it as any).weightKg;
     return w !== null && w !== undefined && w !== "";
@@ -108,6 +97,7 @@ export default function DashboardTab({
     dayjs().subtract(30, "day").startOf("day"),
     dayjs().endOf("day"),
   ]);
+
   const [windowId, setWindowId] = useState<string | undefined>(undefined);
 
   const windowOptions = useMemo(
@@ -124,7 +114,9 @@ export default function DashboardTab({
 
     for (const p of products || []) {
       const cost = n((p as any).costPrice);
+
       if ((p as any).id) byId.set(String((p as any).id), cost);
+
       if ((p as any).name) {
         byName.set(
           String((p as any).name)
@@ -177,7 +169,9 @@ export default function DashboardTab({
     let list = [...(orders || [])];
 
     if (windowId) {
-      list = list.filter((o) => String(o.windowId || "") === String(windowId));
+      list = list.filter(
+        (o) => String((o as any).windowId || "") === String(windowId),
+      );
     }
 
     if (range && (range[0] || range[1])) {
@@ -243,6 +237,7 @@ export default function DashboardTab({
     }, 0);
 
     const statusCounts: Record<string, number> = {};
+
     for (const o of filteredOrders) {
       const s = String(o.status || "PROCESSING").toUpperCase();
       statusCounts[s] = (statusCounts[s] || 0) + 1;
@@ -254,8 +249,8 @@ export default function DashboardTab({
     const activeProducts = (products || []).filter(
       (p) => !!(p as any).isActive,
     ).length;
-    const totalProducts = (products || []).length;
 
+    const totalProducts = (products || []).length;
     const pendingWeights = totalOrders - moneyOrders;
 
     return {
@@ -271,36 +266,7 @@ export default function DashboardTab({
       moneyOrders,
       pendingWeights,
     };
-  }, [filteredOrders, moneyReadyOrders, products]);
-
-  const salesSeries = useMemo(() => {
-    const byDay: Record<
-      string,
-      { day: string; revenue: number; profit: number; orders: number }
-    > = {};
-
-    for (const o of filteredOrders) {
-      const day = dayjs(o.createdAt).format("YYYY-MM-DD");
-      if (!byDay[day]) byDay[day] = { day, revenue: 0, profit: 0, orders: 0 };
-
-      byDay[day].orders += 1;
-
-      if (moneyReady(o)) {
-        byDay[day].revenue += n(o.total);
-        byDay[day].profit += (o.items || []).reduce(
-          (sum, it) => sum + getItemProfit(it),
-          0,
-        );
-      }
-    }
-
-    return Object.values(byDay).sort((a, b) => a.day.localeCompare(b.day));
-  }, [filteredOrders, productCostMaps]);
-
-  const statusSeries = useMemo(() => {
-    const keys = ["PROCESSING", "PACKED", "SHIPPING", "DELIVERED"];
-    return keys.map((k) => ({ status: k, count: kpis.statusCounts[k] || 0 }));
-  }, [kpis.statusCounts]);
+  }, [filteredOrders, moneyReadyOrders, products, productCostMaps]);
 
   const topProducts = useMemo(() => {
     const map = new Map<
@@ -463,18 +429,21 @@ export default function DashboardTab({
       setRange([null, null]);
       return;
     }
+
     if (preset === "7") {
       setRange([
         dayjs().subtract(7, "day").startOf("day"),
         dayjs().endOf("day"),
       ]);
     }
+
     if (preset === "30") {
       setRange([
         dayjs().subtract(30, "day").startOf("day"),
         dayjs().endOf("day"),
       ]);
     }
+
     if (preset === "this_month") {
       setRange([dayjs().startOf("month"), dayjs().endOf("day")]);
     }
@@ -654,72 +623,11 @@ export default function DashboardTab({
                   {s}: {kpis.statusCounts[s] || 0}
                 </Tag>
               ))}
+
               <Tag color="purple">
                 Complete carcasses: {carcassStats.completeCount}
               </Tag>
             </Space>
-          </Card>
-        </Col>
-      </Row>
-
-      <Row gutter={[12, 12]}>
-        <Col xs={24} lg={14}>
-          <Card
-            className="aca-card"
-            title="Revenue over time (finalized only)"
-            loading={loading}
-          >
-            <div style={{ width: "100%", height: 300 }}>
-              <ResponsiveContainer>
-                <LineChart data={salesSeries}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="day"
-                    tickFormatter={(v) => String(v).slice(5)}
-                  />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="revenue"
-                    name="Revenue (finalized)"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="profit"
-                    name="Profit"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="orders"
-                    name="Orders"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={10}>
-          <Card className="aca-card" title="Orders by status" loading={loading}>
-            <div style={{ width: "100%", height: 300 }}>
-              <ResponsiveContainer>
-                <BarChart data={statusSeries}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="status" />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="count" name="Orders" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
           </Card>
         </Col>
       </Row>
