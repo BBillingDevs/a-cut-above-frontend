@@ -1,4 +1,8 @@
 // src/pages/public/ShopPage.tsx
+// Full updated file based on your uploaded ShopPage.tsx.
+// Changes: taller product images + click image to preview full-size image in a modal.
+// Source: :contentReference[oaicite:0]{index=0}
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -91,7 +95,7 @@ function fmtGrams(g: number | null | undefined): string | null {
 function resolveImageUrl(url?: string | null): string | null {
   if (!url) return null;
   if (url.startsWith("/uploads/")) return `${RAILWAY_BASE}${url}`;
-  return null;
+  return url;
 }
 
 function formatDeliveryDate(value?: string) {
@@ -151,14 +155,15 @@ export default function ShopPage() {
 
   const isMobile = !screens.md;
   const showSummary = !!screens.lg;
+
   const [cartOpen, setCartOpen] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
 
   const [products, setProducts] = useState([] as PricedProduct[]);
   const [loading, setLoading] = useState(false);
-  const [windowState, setWindowState] = useState({
+  const [windowState, setWindowState] = useState<WindowState>({
     open: true,
-  } as WindowState);
+  });
 
   const [dropoffLocations, setDropoffLocations] = useState<DropoffLocation[]>(
     [],
@@ -172,13 +177,17 @@ export default function ShopPage() {
   const [qtyMap, setQtyMap] = useState({} as Record<string, number>);
   const [activeCat, setActiveCat] = useState("all");
   const [sort, setSort] = useState("featured");
+  const [shopSearch, setShopSearch] = useState("");
+
+  const [previewImage, setPreviewImage] = useState<{
+    src: string;
+    alt: string;
+  } | null>(null);
 
   const q = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return (params.get("q") || "").trim().toLowerCase();
   }, [location.search]);
-
-  const [shopSearch, setShopSearch] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -199,9 +208,12 @@ export default function ShopPage() {
   function setUrlQuery(next: string) {
     const params = new URLSearchParams(location.search);
     const cleaned = next.trim();
+
     if (cleaned) params.set("q", cleaned);
     else params.delete("q");
+
     const qs = params.toString();
+
     navigate(
       { pathname: location.pathname, search: qs ? `?${qs}` : "" },
       { replace: true },
@@ -217,6 +229,7 @@ export default function ShopPage() {
 
   async function load() {
     setLoading(true);
+
     try {
       const [wRes, pRes, lRes] = await Promise.all([
         api.get("/api/public/order-window"),
@@ -227,6 +240,7 @@ export default function ShopPage() {
       setWindowState(wRes.data);
 
       const rawLocations = (lRes.data?.locations || lRes.data || []) as any[];
+
       const activeLocations = rawLocations
         .filter((loc) => loc?.isActive !== false)
         .sort((a, b) => Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0))
@@ -252,16 +266,19 @@ export default function ShopPage() {
 
       setSelectedLocationId((prev) => {
         if (prev && activeLocations.some((loc) => loc.id === prev)) return prev;
+
         if (
           savedLocationId &&
           activeLocations.some((loc) => loc.id === savedLocationId)
         ) {
           return savedLocationId;
         }
+
         return activeLocations[0]?.id ?? null;
       });
 
       const raw = (pRes.data?.products || []) as any[];
+
       setProducts(
         raw.map((p) => ({
           id: String(p.id),
@@ -369,6 +386,7 @@ export default function ShopPage() {
       if ((p.unit || "").toLowerCase() === "kg") {
         return p.pricePerKg ?? p.price ?? 0;
       }
+
       return p.pricePerPack ?? p.price ?? 0;
     };
 
@@ -397,9 +415,11 @@ export default function ShopPage() {
 
   function summaryUnitPrice(p: any) {
     const u = String(p?.unit || "").toLowerCase();
+
     if (u === "kg") {
       return asNumber(p?.pricePerKg ?? p?.priceKg ?? p?.price) ?? 0;
     }
+
     return asNumber(p?.pricePerPack ?? p?.pricePack ?? p?.price) ?? 0;
   }
 
@@ -451,6 +471,7 @@ export default function ShopPage() {
           message.success(`Added ${remaining} to cart`);
         },
       });
+
       return;
     }
 
@@ -478,6 +499,7 @@ export default function ShopPage() {
           >
             From our farm
           </Title>
+
           <Text className="aca-subtitle">
             Grass-fed, ethical and slow-raised meat.
           </Text>
@@ -505,6 +527,7 @@ export default function ShopPage() {
             <Text type="secondary" style={{ whiteSpace: "nowrap" }}>
               Sort by:
             </Text>
+
             <Select
               value={sort}
               onChange={setSort}
@@ -526,6 +549,7 @@ export default function ShopPage() {
             }}
           >
             <Text type="secondary">Delivery location:</Text>
+
             <Select
               value={selectedLocationId ?? undefined}
               onChange={savePreferredLocation}
@@ -608,6 +632,7 @@ export default function ShopPage() {
           >
             {categoryDefs.map((c) => {
               const active = activeCat === c.key;
+
               return (
                 <button
                   key={c.key}
@@ -684,6 +709,7 @@ export default function ShopPage() {
               >
                 Categories
               </h3>
+
               <div className="aca-catList">
                 {categoryDefs.map((c) => (
                   <button
@@ -719,6 +745,7 @@ export default function ShopPage() {
                   <h3 className="aca-sidebarTitle" style={{ margin: 0 }}>
                     Order Summary
                   </h3>
+
                   <Tag color={items.length ? "green" : "default"}>
                     {items.length} item(s)
                   </Tag>
@@ -753,7 +780,16 @@ export default function ShopPage() {
                             background: "var(--aca-bg2)",
                           }}
                         >
-                          <div
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (img) {
+                                setPreviewImage({
+                                  src: img,
+                                  alt: row.product.name,
+                                });
+                              }
+                            }}
                             style={{
                               width: 44,
                               height: 44,
@@ -761,6 +797,8 @@ export default function ShopPage() {
                               overflow: "hidden",
                               background: "var(--aca-card)",
                               border: "1px solid var(--aca-border)",
+                              padding: 0,
+                              cursor: img ? "zoom-in" : "default",
                             }}
                           >
                             {img ? (
@@ -771,6 +809,7 @@ export default function ShopPage() {
                                   width: "100%",
                                   height: "100%",
                                   objectFit: "cover",
+                                  display: "block",
                                 }}
                                 onError={(e) => {
                                   (
@@ -779,7 +818,7 @@ export default function ShopPage() {
                                 }}
                               />
                             ) : null}
-                          </div>
+                          </button>
 
                           <div style={{ minWidth: 0, paddingTop: 4 }}>
                             <div
@@ -801,6 +840,7 @@ export default function ShopPage() {
                                 >
                                   {row.product.name}
                                 </div>
+
                                 <div
                                   style={{
                                     fontSize: 12,
@@ -834,6 +874,7 @@ export default function ShopPage() {
                                   icon={<DeleteOutlined />}
                                   disabled={locationUnavailable}
                                 />
+
                                 <div
                                   style={{
                                     display: "inline-flex",
@@ -863,6 +904,7 @@ export default function ShopPage() {
                                       padding: 0,
                                     }}
                                   />
+
                                   <span
                                     style={{
                                       minWidth: 14,
@@ -873,6 +915,7 @@ export default function ShopPage() {
                                   >
                                     {qty}
                                   </span>
+
                                   <Button
                                     size="small"
                                     type="text"
@@ -884,11 +927,15 @@ export default function ShopPage() {
                                         : remainingStock(prod) === 0)
                                     }
                                     onClick={() => {
-                                      if (!prod)
-                                        return setQty(row.product.id, qty + 1);
-                                      const rem = remainingStock(prod);
-                                      if (rem === null || rem > 0)
+                                      if (!prod) {
                                         setQty(row.product.id, qty + 1);
+                                        return;
+                                      }
+
+                                      const rem = remainingStock(prod);
+                                      if (rem === null || rem > 0) {
+                                        setQty(row.product.id, qty + 1);
+                                      }
                                     }}
                                     style={{
                                       width: 22,
@@ -904,6 +951,7 @@ export default function ShopPage() {
                         </div>
                       );
                     })}
+
                     {items.length > 10 ? (
                       <Text type="secondary">+ {items.length - 10} more…</Text>
                     ) : null}
@@ -947,17 +995,21 @@ export default function ShopPage() {
 
               const imgSrc = resolveImageUrl(p.imageUrl);
               const unitLower = (p.unit || "").toLowerCase();
+
               const displayPrice =
                 unitLower === "kg"
                   ? money(p.pricePerKg ?? p.price)
                   : money(p.pricePerPack ?? p.price);
+
               const displayLabel =
                 unitLower === "kg" ? "Price / kg" : "Price / pack";
+
               const addDisabled =
                 !windowState.open ||
                 soldOut ||
                 locationUnavailable ||
                 (remaining !== null && remaining <= 0);
+
               const avgWeightLabel = fmtGrams(p.avgWeightG);
 
               return (
@@ -1001,6 +1053,7 @@ export default function ShopPage() {
                           >
                             {p.name}
                           </div>
+
                           <div style={{ marginTop: 6 }}>{stockTag}</div>
                         </div>
                       ) : (
@@ -1019,15 +1072,37 @@ export default function ShopPage() {
                     }
                     extra={isMobile ? null : stockTag}
                     cover={
-                      <div className="aca-productMedia">
+                      <button
+                        type="button"
+                        className="aca-productMedia"
+                        onClick={() => {
+                          if (imgSrc) {
+                            setPreviewImage({
+                              src: imgSrc,
+                              alt: p.name,
+                            });
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          border: 0,
+                          padding: 0,
+                          background: "transparent",
+                          cursor: imgSrc ? "zoom-in" : "default",
+                          position: "relative",
+                          overflow: "hidden",
+                          display: "block",
+                        }}
+                      >
                         {imgSrc ? (
                           <img
                             src={imgSrc}
                             alt={p.name}
                             style={{
                               width: "100%",
-                              height: isMobile ? 120 : 180,
+                              height: isMobile ? 145 : 220,
                               objectFit: "cover",
+                              display: "block",
                             }}
                             onError={(e) => {
                               (
@@ -1038,13 +1113,14 @@ export default function ShopPage() {
                         ) : (
                           <div
                             className="aca-productMedia__placeholder"
-                            style={{ height: isMobile ? 120 : 180 }}
+                            style={{ height: isMobile ? 145 : 220 }}
                           />
                         )}
+
                         {p.cutType ? (
                           <div className="aca-productBadge">{p.cutType}</div>
                         ) : null}
-                      </div>
+                      </button>
                     }
                   >
                     {p.description && !isMobile ? (
@@ -1070,6 +1146,7 @@ export default function ShopPage() {
                         >
                           {displayLabel}
                         </Text>
+
                         <Text
                           strong
                           className="aca-priceVal"
@@ -1133,6 +1210,7 @@ export default function ShopPage() {
                           setQtyMap((m) => ({ ...m, [p.id]: desired }));
                         }}
                       />
+
                       <Button
                         type="primary"
                         size={isMobile ? "middle" : "large"}
@@ -1166,6 +1244,7 @@ export default function ShopPage() {
       >
         <div style={{ display: "grid", gap: 12 }}>
           <Text>Please select your preferred delivery location.</Text>
+
           <Select
             value={selectedLocationId ?? undefined}
             onChange={setSelectedLocationId}
@@ -1176,6 +1255,7 @@ export default function ShopPage() {
               label: loc.name,
             }))}
           />
+
           <Button
             type="primary"
             disabled={!selectedLocationId}
@@ -1184,6 +1264,36 @@ export default function ShopPage() {
             Save location
           </Button>
         </div>
+      </Modal>
+
+      <Modal
+        open={!!previewImage}
+        footer={null}
+        onCancel={() => setPreviewImage(null)}
+        centered
+        width={900}
+        destroyOnHidden
+        styles={{
+          body: {
+            padding: 0,
+            background: "transparent",
+          },
+        }}
+      >
+        {previewImage ? (
+          <img
+            src={previewImage.src}
+            alt={previewImage.alt}
+            style={{
+              width: "100%",
+              maxHeight: "82vh",
+              objectFit: "contain",
+              display: "block",
+              borderRadius: 12,
+              background: "#fff",
+            }}
+          />
+        ) : null}
       </Modal>
 
       {isMobile ? (
@@ -1243,7 +1353,16 @@ export default function ShopPage() {
                         background: "var(--aca-bg2)",
                       }}
                     >
-                      <div
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (img) {
+                            setPreviewImage({
+                              src: img,
+                              alt: row.product.name,
+                            });
+                          }
+                        }}
                         style={{
                           width: 44,
                           height: 44,
@@ -1251,6 +1370,8 @@ export default function ShopPage() {
                           overflow: "hidden",
                           background: "var(--aca-card)",
                           border: "1px solid var(--aca-border)",
+                          padding: 0,
+                          cursor: img ? "zoom-in" : "default",
                         }}
                       >
                         {img ? (
@@ -1261,6 +1382,7 @@ export default function ShopPage() {
                               width: "100%",
                               height: "100%",
                               objectFit: "cover",
+                              display: "block",
                             }}
                             onError={(e) => {
                               (
@@ -1269,7 +1391,7 @@ export default function ShopPage() {
                             }}
                           />
                         ) : null}
-                      </div>
+                      </button>
 
                       <div style={{ minWidth: 0, paddingTop: 2 }}>
                         <div
@@ -1290,6 +1412,7 @@ export default function ShopPage() {
                             >
                               {row.product.name}
                             </div>
+
                             <div
                               style={{
                                 fontSize: 12,
@@ -1308,6 +1431,7 @@ export default function ShopPage() {
                               </span>
                             </div>
                           </div>
+
                           <Button
                             size="small"
                             danger
@@ -1332,7 +1456,9 @@ export default function ShopPage() {
                               setQty(row.product.id, Math.max(1, qty - 1))
                             }
                           />
+
                           <Text strong>{qty}</Text>
+
                           <Button
                             icon={<PlusOutlined />}
                             disabled={
@@ -1340,10 +1466,16 @@ export default function ShopPage() {
                               (!prod ? false : remainingStock(prod) === 0)
                             }
                             onClick={() => {
-                              if (!prod) return setQty(row.product.id, qty + 1);
-                              const rem = remainingStock(prod);
-                              if (rem === null || rem > 0)
+                              if (!prod) {
                                 setQty(row.product.id, qty + 1);
+                                return;
+                              }
+
+                              const rem = remainingStock(prod);
+
+                              if (rem === null || rem > 0) {
+                                setQty(row.product.id, qty + 1);
+                              }
                             }}
                           />
                         </div>
@@ -1351,6 +1483,7 @@ export default function ShopPage() {
                     </div>
                   );
                 })}
+
                 {items.length > 10 ? (
                   <Text type="secondary">+ {items.length - 10} more…</Text>
                 ) : null}
