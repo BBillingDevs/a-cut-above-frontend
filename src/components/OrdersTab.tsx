@@ -1,33 +1,34 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Checkbox,
   Collapse,
+  Divider,
   Drawer,
   Dropdown,
+  Empty,
+  Grid,
   Input,
   InputNumber,
   Modal,
   Popconfirm,
   Select,
   Space,
+  Switch,
   Table,
   Tag,
-  message,
-  Divider,
   Typography,
-  Grid,
-  Empty,
-  Switch,
-  Alert,
+  message,
 } from "antd";
 import type { MenuProps } from "antd";
 import {
-  FilterOutlined,
   DownloadOutlined,
-  SettingOutlined,
   FilePdfOutlined,
+  FilterOutlined,
+  PlusOutlined,
+  SettingOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import * as XLSX from "xlsx";
@@ -80,6 +81,23 @@ type PackingStateItem = {
   weights: WeightEntry[];
 };
 
+type AdminCreateProduct = {
+  id: string;
+  name: string;
+  unit: string;
+  stockQty?: number | null;
+  retailPrice?: string | number | null;
+  wholesalePrice?: string | number | null;
+  price?: string | number | null;
+  pricePerKg?: string | number | null;
+  pricePerPack?: string | number | null;
+};
+
+type CreateOrderItem = {
+  productId: string;
+  qty: number;
+};
+
 function money(v: any) {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
@@ -109,6 +127,7 @@ function recomputeOrderClient(order: AdminOrder) {
         weightKg == null || !Number.isFinite(weightKg)
           ? 0
           : unitPrice * weightKg;
+
       return { ...it, lineTotal };
     }
 
@@ -134,11 +153,13 @@ function normalizeWeightToKg(
   ) {
     return null;
   }
+
   return unit === "g" ? Number(value) / 1000 : Number(value);
 }
 
 function parseExistingWeights(item: any): WeightEntry[] {
   const raw = item.packWeights;
+
   if (!Array.isArray(raw)) {
     const qty = Math.max(0, Math.round(Number(item.qty || 0)));
     return Array.from({ length: qty }, () => ({
@@ -150,13 +171,15 @@ function parseExistingWeights(item: any): WeightEntry[] {
   const parsed = raw.map((w: any) => ({
     value:
       w?.value === null || w?.value === undefined ? undefined : Number(w.value),
-    unit: w?.unit === "g" ? "g" : "kg",
+    unit: w?.unit === "g" ? ("g" as const) : ("kg" as const),
   }));
 
   const qty = Math.max(0, Math.round(Number(item.qty || 0)));
+
   while (parsed.length < qty) {
     parsed.push({ value: undefined, unit: "kg" });
   }
+
   return parsed.slice(0, qty);
 }
 
@@ -193,6 +216,7 @@ function PackingItemRow({
             <div style={{ fontWeight: 800 }}>
               {String((item as any).productName || "Item")}
             </div>
+
             <Text type="secondary" style={{ fontSize: 12 }}>
               Qty: {qty} • Unit:{" "}
               {String((item as any).unit || "").toLowerCase()}
@@ -203,6 +227,9 @@ function PackingItemRow({
             style={{
               display: "flex",
               justifyContent: isMobile ? "flex-start" : "flex-end",
+              gap: 8,
+              alignItems: "center",
+              flexWrap: "wrap",
             }}
           >
             <Checkbox
@@ -221,6 +248,7 @@ function PackingItemRow({
                 value: undefined,
                 unit: "kg" as const,
               };
+
               return (
                 <div
                   key={idx}
@@ -232,6 +260,7 @@ function PackingItemRow({
                   }}
                 >
                   <Text style={{ minWidth: 56 }}>Pack {idx + 1}</Text>
+
                   <InputNumber
                     value={entry.value}
                     onChange={(v) =>
@@ -245,6 +274,7 @@ function PackingItemRow({
                     step={entry.unit === "g" ? 1 : 0.1}
                     style={{ width: isMobile ? 120 : 140 }}
                   />
+
                   <Select
                     value={entry.unit}
                     onChange={(v) => onChangeWeightUnit(idx, v)}
@@ -254,6 +284,7 @@ function PackingItemRow({
                       { label: "g", value: "g" },
                     ]}
                   />
+
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     {entry.value !== undefined
                       ? `= ${(normalizeWeightToKg(entry.value, entry.unit) || 0).toFixed(3)} kg`
@@ -279,6 +310,7 @@ function OrderTable({
   selectedRowKeys,
   onSelectedRowKeysChange,
   onOpenPacking,
+  onOpenWaste,
 }: {
   orders: AdminOrder[];
   isMobile: boolean;
@@ -289,6 +321,7 @@ function OrderTable({
   selectedRowKeys: React.Key[];
   onSelectedRowKeysChange: (keys: React.Key[]) => void;
   onOpenPacking: (order: AdminOrder) => void;
+  onOpenWaste: (order: AdminOrder, item: AdminOrderItem) => void;
 }) {
   const expandedColumns = useMemo(
     () =>
@@ -301,6 +334,7 @@ function OrderTable({
             const unit = String((it as any).unit || "").toLowerCase();
             const unitPrice = (it as any).unitPrice;
             const label = unit === "kg" ? "Price / kg" : "Price / pack";
+
             return (
               <div style={{ display: "grid", gap: 2 }}>
                 <div style={{ fontWeight: 800 }}>{name}</div>
@@ -325,9 +359,11 @@ function OrderTable({
           width: 160,
           render: (_: any, it: AdminOrderItem) => {
             if (!isKgItem(it)) return <Tag>Pack</Tag>;
+
             const weights = Array.isArray((it as any).packWeights)
               ? (it as any).packWeights
               : [];
+
             return weights.length ? (
               <div style={{ display: "grid", gap: 4 }}>
                 {weights.map((w: any, i: number) => (
@@ -344,14 +380,26 @@ function OrderTable({
         {
           title: "Line",
           key: "lineTotal",
-          width: 100,
+          width: 170,
           render: (_: any, it: AdminOrderItem) => {
-            const lt = Number((it as any).lineTotal || 0);
-            return lt ? money(lt) : "—";
+            const order = (it as any).__order as AdminOrder;
+
+            return (
+              <Space>
+                <span>{money((it as any).lineTotal)}</span>
+                <Button
+                  danger
+                  size="small"
+                  onClick={() => onOpenWaste(order, it)}
+                >
+                  Waste
+                </Button>
+              </Space>
+            );
           },
         },
       ] as any[],
-    [],
+    [onOpenWaste],
   );
 
   const columns = useMemo(
@@ -488,12 +536,18 @@ function OrderTable({
         expandedRowKeys,
         onExpandedRowsChange: (keys) => onExpandedRowKeysChange(keys),
         expandedRowRender: (order) => {
-          const stableItems = [...(order.items || [])].sort(
-            (a: any, b: any) =>
-              String(a.productName || "").localeCompare(
-                String(b.productName || ""),
-              ) || String(a.id).localeCompare(String(b.id)),
-          );
+          const stableItems = [...(order.items || [])]
+            .map((item: any) => ({
+              ...item,
+              __order: order,
+            }))
+            .sort(
+              (a: any, b: any) =>
+                String(a.productName || "").localeCompare(
+                  String(b.productName || ""),
+                ) || String(a.id).localeCompare(String(b.id)),
+            );
+
           return (
             <div style={{ padding: isMobile ? 4 : 8 }}>
               {(order as any).packerInitials ? (
@@ -525,6 +579,7 @@ function OrderTable({
                 >
                   Packing Slip PDF
                 </Button>
+
                 <Button
                   block={isMobile}
                   icon={<FilePdfOutlined />}
@@ -538,13 +593,14 @@ function OrderTable({
                   Invoice PDF
                 </Button>
               </div>
+
               <Table
                 size="small"
                 rowKey={(i) => i.id}
                 dataSource={stableItems}
                 pagination={false}
                 columns={expandedColumns}
-                scroll={isMobile ? { x: 720 } : undefined}
+                scroll={isMobile ? { x: 760 } : undefined}
               />
             </div>
           );
@@ -596,12 +652,35 @@ export default function OrdersTab({
   const [packerInitials, setPackerInitials] = useState("");
   const [savingPacking, setSavingPacking] = useState(false);
 
+  const [wasteModalOpen, setWasteModalOpen] = useState(false);
+  const [wasteOrder, setWasteOrder] = useState<AdminOrder | null>(null);
+  const [wasteItem, setWasteItem] = useState<AdminOrderItem | null>(null);
+  const [wasteQty, setWasteQty] = useState<number>(1);
+  const [savingWaste, setSavingWaste] = useState(false);
+
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const [adminProducts, setAdminProducts] = useState<AdminCreateProduct[]>([]);
+  const [savingCreateOrder, setSavingCreateOrder] = useState(false);
+  const [createCustomerName, setCreateCustomerName] = useState("");
+  const [createCustomerPhone, setCreateCustomerPhone] = useState("");
+  const [createCustomerEmail, setCreateCustomerEmail] = useState("");
+  const [createPricingTier, setCreatePricingTier] = useState<
+    "RETAIL" | "WHOLESALE"
+  >("RETAIL");
+  const [createDropoffLocationId, setCreateDropoffLocationId] = useState("");
+  const [createDeliveryScheduleId, setCreateDeliveryScheduleId] = useState("");
+  const [createNotes, setCreateNotes] = useState("");
+  const [createItems, setCreateItems] = useState<CreateOrderItem[]>([
+    { productId: "", qty: 1 },
+  ]);
+
   useEffect(() => {
     const normalized = (orders || []).map((o) => ({
       ...o,
       status: o.status === "ORDER_PLACED" ? "READY_TO_PACK" : o.status,
       ...recomputeOrderClient(o),
     }));
+
     setDisplayOrders(normalized);
   }, [orders]);
 
@@ -612,11 +691,22 @@ export default function OrdersTab({
       .catch(() => { });
   }, [orders]);
 
+  useEffect(() => {
+    if (!createOrderOpen) return;
+
+    api
+      .get("/api/admin/products")
+      .then((res) => setAdminProducts(res.data?.products || []))
+      .catch(() => message.error("Failed to load products"));
+  }, [createOrderOpen]);
+
   const locationOptions = useMemo(() => {
     const seen = new Map<string, string>();
+
     for (const s of schedules) {
       seen.set(s.dropoffLocation.id, s.dropoffLocation.name);
     }
+
     return Array.from(seen.entries()).map(([id, name]) => ({
       value: id,
       label: name,
@@ -634,6 +724,19 @@ export default function OrdersTab({
       }));
   }, [schedules, filterLocationId]);
 
+  const createScheduleOptions = useMemo(() => {
+    return schedules
+      .filter(
+        (s) =>
+          !createDropoffLocationId ||
+          s.dropoffLocationId === createDropoffLocationId,
+      )
+      .map((s) => ({
+        value: s.id,
+        label: `${s.dropoffLocation.name} — Cutoff: ${fmtDate(s.cutoffDate)} → Delivery: ${fmtDate(s.deliveryDate)}`,
+      }));
+  }, [schedules, createDropoffLocationId]);
+
   const deliveryRunScheduleOptions = useMemo(() => {
     return schedules
       .filter(
@@ -647,13 +750,27 @@ export default function OrdersTab({
       }));
   }, [schedules, deliveryRunLocationId]);
 
+  const productOptions = useMemo(
+    () =>
+      adminProducts.map((p) => ({
+        value: p.id,
+        label: `${p.name} (${String(p.unit || "pack")})`,
+      })),
+    [adminProducts],
+  );
+
   const grouped = useMemo((): LocationGroup[] => {
     const filteredOrders = displayOrders.filter((o) => {
       const anyO = o as any;
-      if (filterLocationId && anyO.dropoffLocationId !== filterLocationId)
+
+      if (filterLocationId && anyO.dropoffLocationId !== filterLocationId) {
         return false;
-      if (filterScheduleId && anyO.deliveryScheduleId !== filterScheduleId)
+      }
+
+      if (filterScheduleId && anyO.deliveryScheduleId !== filterScheduleId) {
         return false;
+      }
+
       return true;
     });
 
@@ -687,6 +804,7 @@ export default function OrdersTab({
             orders: [],
           });
         }
+
         locGroup.schedules.get(schedId)!.orders.push(order);
       }
     }
@@ -699,16 +817,21 @@ export default function OrdersTab({
   async function handleDelete(orderId: string, orderNo: string) {
     try {
       await api.delete(`/api/admin/orders/${orderId}`);
+
       message.success(`Order ${orderNo} deleted`);
+
       setDisplayOrders((prev) =>
         prev.filter((o) => String(o.id) !== String(orderId)),
       );
+
       setExpandedRowKeys((prev) =>
         prev.filter((k) => String(k) !== String(orderId)),
       );
+
       setSelectedRowKeys((prev) =>
         prev.filter((k) => String(k) !== String(orderId)),
       );
+
       onReload();
     } catch (e: any) {
       message.error(e?.response?.data?.error || "Failed to delete order");
@@ -734,8 +857,58 @@ export default function OrdersTab({
     }
   }
 
+  function openWasteModal(order: AdminOrder, item: AdminOrderItem) {
+    setWasteOrder(order);
+    setWasteItem(item);
+    setWasteQty(1);
+    setWasteModalOpen(true);
+  }
+
+  async function confirmWasteOrderItem() {
+    if (!wasteOrder || !wasteItem) return;
+
+    const maxQty = Math.max(1, Number((wasteItem as any).qty || 1));
+    const cleanQty = Math.min(Math.max(1, Number(wasteQty || 1)), maxQty);
+
+    setSavingWaste(true);
+
+    try {
+      const res = await api.post(
+        `/api/admin/orders/${wasteOrder.id}/items/${wasteItem.id}/waste`,
+        {
+          qtyWasted: cleanQty,
+          notes: "Wasted from orders screen",
+        },
+      );
+
+      const updated = res.data?.order as AdminOrder;
+
+      setDisplayOrders((prev) =>
+        prev.map((o) =>
+          String(o.id) === String(updated.id)
+            ? ({ ...updated, ...recomputeOrderClient(updated) } as any)
+            : o,
+        ),
+      );
+
+      message.success("Waste recorded and order updated");
+
+      setWasteModalOpen(false);
+      setWasteOrder(null);
+      setWasteItem(null);
+      setWasteQty(1);
+
+      onReload();
+    } catch (e: any) {
+      message.error(e?.response?.data?.error || "Failed to waste product");
+    } finally {
+      setSavingWaste(false);
+    }
+  }
+
   function openPacking(order: AdminOrder) {
     const state: Record<string, PackingStateItem> = {};
+
     for (const item of order.items || []) {
       state[item.id] = {
         itemId: item.id,
@@ -743,6 +916,7 @@ export default function OrdersTab({
         weights: isKgItem(item) ? parseExistingWeights(item as any) : [],
       };
     }
+
     setPackingOrder(order);
     setPackingItems(state);
   }
@@ -806,12 +980,14 @@ export default function OrdersTab({
     if (!packingOrder) return;
 
     const initials = packerInitials.trim().toUpperCase();
+
     if (!initials) {
       message.error("Enter packer initials");
       return;
     }
 
     const validation = getPackingValidation(packingOrder);
+
     if (!validation.ok) {
       message.warning(
         "Please complete all per-pack weights and packing checkboxes.",
@@ -821,9 +997,11 @@ export default function OrdersTab({
     }
 
     setSavingPacking(true);
+
     try {
       const itemsPayload = (packingOrder.items || []).map((item) => {
         const state = packingItems[item.id];
+
         return {
           itemId: item.id,
           packed: !!state?.packed,
@@ -853,10 +1031,12 @@ export default function OrdersTab({
       );
 
       message.success("Order packed and moved to Out for Delivery");
+
       setPackingInitialsOpen(false);
       setPackerInitials("");
       setPackingOrder(null);
       setPackingItems({});
+
       onReload();
     } catch (e: any) {
       message.error(e?.response?.data?.error || "Failed to save packing");
@@ -872,6 +1052,7 @@ export default function OrdersTab({
     }
 
     setBulkLoading(true);
+
     try {
       await api.put("/api/admin/orders/status/bulk", {
         ids: selectedRowKeys.map(String),
@@ -897,6 +1078,63 @@ export default function OrdersTab({
     }
   }
 
+  async function createAdminOrder() {
+    const validItems = createItems
+      .filter((x) => x.productId && Number(x.qty || 0) > 0)
+      .map((x) => ({
+        productId: x.productId,
+        qty: Number(x.qty || 1),
+      }));
+
+    if (!createCustomerName.trim()) {
+      message.error("Enter customer name");
+      return;
+    }
+
+    if (!createCustomerPhone.trim()) {
+      message.error("Enter customer phone");
+      return;
+    }
+
+    if (!validItems.length) {
+      message.error("Add at least one product");
+      return;
+    }
+
+    setSavingCreateOrder(true);
+
+    try {
+      await api.post("/api/admin/orders", {
+        customerName: createCustomerName.trim(),
+        customerPhone: createCustomerPhone.trim(),
+        customerEmail: createCustomerEmail.trim(),
+        pricingTier: createPricingTier,
+        dropoffLocationId: createDropoffLocationId,
+        deliveryScheduleId: createDeliveryScheduleId,
+        notes: createNotes.trim(),
+        items: validItems,
+      });
+
+      message.success("Order created");
+
+      setCreateOrderOpen(false);
+      setCreateCustomerName("");
+      setCreateCustomerPhone("");
+      setCreateCustomerEmail("");
+      setCreatePricingTier("RETAIL");
+      setCreateDropoffLocationId("");
+      setCreateDeliveryScheduleId("");
+      setCreateNotes("");
+      setCreateItems([{ productId: "", qty: 1 }]);
+
+      onReload();
+    } catch (e: any) {
+      message.error(e?.response?.data?.error || "Failed to create order");
+    } finally {
+      setSavingCreateOrder(false);
+    }
+  }
+
   function exportPackingList() {
     const ordersToExport = packingScheduleId
       ? displayOrders.filter(
@@ -914,6 +1152,7 @@ export default function OrdersTab({
     }
 
     const productSet = new Set<string>();
+
     for (const o of ordersToExport) {
       for (const it of o.items || []) {
         const name = String((it as any).productName || "").trim();
@@ -924,10 +1163,14 @@ export default function OrdersTab({
     const productNames = Array.from(productSet).sort((a, b) =>
       a.localeCompare(b),
     );
+
     const headers = ["Customer", "Phone", "Order No", ...productNames];
     const rows: any[][] = [];
     const totals: Record<string, number> = {};
-    for (const p of productNames) totals[p] = 0;
+
+    for (const p of productNames) {
+      totals[p] = 0;
+    }
 
     for (const o of ordersToExport) {
       const row: any[] = [
@@ -935,19 +1178,25 @@ export default function OrdersTab({
         o.customerPhone ?? "",
         o.orderNo ?? "",
       ];
+
       const qtyByProduct: Record<string, number> = {};
+
       for (const it of o.items || []) {
         const name = String((it as any).productName || "").trim();
         if (!name) continue;
+
         const qty = Number((it as any).qty || 0);
+
         qtyByProduct[name] =
           (qtyByProduct[name] || 0) + (Number.isFinite(qty) ? qty : 0);
       }
+
       for (const p of productNames) {
         const q = qtyByProduct[p] || 0;
         row.push(q);
         totals[p] += q;
       }
+
       rows.push(row);
     }
 
@@ -957,8 +1206,10 @@ export default function OrdersTab({
       "",
       ...productNames.map((p) => totals[p] || 0),
     ];
+
     const aoa = [headers, ...rows, [], totalsRow];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
+
     (ws as any)["!cols"] = [
       { wch: 22 },
       { wch: 16 },
@@ -978,12 +1229,14 @@ export default function OrdersTab({
       : `all_${dayjs().format("YYYY-MM-DD")}`;
 
     XLSX.writeFile(wb, `packing-list_${label}.xlsx`);
+
     message.success(`Exported ${ordersToExport.length} orders`);
     setPackingOpen(false);
   }
 
   function exportDeliveryRunPdf() {
     const params = new URLSearchParams();
+
     if (deliveryRunLocationId) params.set("locationId", deliveryRunLocationId);
     if (deliveryRunScheduleId) params.set("scheduleId", deliveryRunScheduleId);
 
@@ -991,10 +1244,17 @@ export default function OrdersTab({
       `${API_BASE}/api/admin/orders/delivery-run.pdf?${params.toString()}`,
       "_blank",
     );
+
     setDeliveryRunOpen(false);
   }
 
   const moreMenuItems: MenuProps["items"] = [
+    {
+      key: "create-order",
+      label: "Create order",
+      icon: <PlusOutlined />,
+      onClick: () => setCreateOrderOpen(true),
+    },
     {
       key: "bulk",
       label: "Bulk status",
@@ -1028,9 +1288,11 @@ export default function OrdersTab({
       const locationChildren = [
         ...scheduleEntries.map((schedGroup) => {
           const sched = schedGroup.schedule;
+
           const panelLabel = sched
             ? `Cutoff: ${fmtDate(sched.cutoffDate)} → Delivery: ${fmtDate(sched.deliveryDate)}`
             : "Unknown schedule";
+
           const orderTotal = schedGroup.orders.reduce(
             (s, o) => s + Number((o as any).total || 0),
             0,
@@ -1063,6 +1325,7 @@ export default function OrdersTab({
                 selectedRowKeys={selectedRowKeys}
                 onSelectedRowKeysChange={setSelectedRowKeys}
                 onOpenPacking={openPacking}
+                onOpenWaste={openWasteModal}
               />
             ),
           };
@@ -1092,6 +1355,7 @@ export default function OrdersTab({
                   selectedRowKeys={selectedRowKeys}
                   onSelectedRowKeysChange={setSelectedRowKeys}
                   onOpenPacking={openPacking}
+                  onOpenWaste={openWasteModal}
                 />
               ),
             },
@@ -1139,10 +1403,25 @@ export default function OrdersTab({
     <Card loading={loading} styles={{ body: { padding: isMobile ? 8 : 16 } }}>
       {!isMobile ? (
         <div style={{ display: "grid", gap: 16, marginBottom: 16 }}>
-          <div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+            }}
+          >
             <Title level={4} style={{ margin: 0 }}>
               Orders
             </Title>
+
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setCreateOrderOpen(true)}
+            >
+              Create Order
+            </Button>
           </div>
 
           <div
@@ -1164,6 +1443,7 @@ export default function OrdersTab({
                 }}
                 options={locationOptions}
               />
+
               <Select
                 allowClear
                 placeholder="Filter by schedule"
@@ -1172,6 +1452,7 @@ export default function OrdersTab({
                 onChange={(v) => setFilterScheduleId(v || "")}
                 options={scheduleOptionsForFilter}
               />
+
               <Button onClick={onReload}>Refresh</Button>
             </Space>
 
@@ -1324,6 +1605,13 @@ export default function OrdersTab({
           <Title level={4} style={{ margin: 0, flex: 1 }}>
             Orders
           </Title>
+
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setCreateOrderOpen(true)}
+          />
+
           <Dropdown menu={{ items: moreMenuItems }} trigger={["click"]}>
             <Button icon={<FilterOutlined />}>Actions</Button>
           </Dropdown>
@@ -1372,10 +1660,12 @@ export default function OrdersTab({
             size="large"
             options={STATUS_OPTIONS}
           />
+
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Text>Send WhatsApp</Text>
             <Switch checked={sendWhatsApp} onChange={setSendWhatsApp} />
           </div>
+
           <Button
             type="primary"
             size="large"
@@ -1408,6 +1698,7 @@ export default function OrdersTab({
             }))}
             size="large"
           />
+
           <Button
             type="primary"
             size="large"
@@ -1440,6 +1731,7 @@ export default function OrdersTab({
             options={locationOptions}
             size="large"
           />
+
           <Select
             allowClear
             placeholder="Filter by delivery slot"
@@ -1449,6 +1741,7 @@ export default function OrdersTab({
             options={deliveryRunScheduleOptions}
             size="large"
           />
+
           <Button
             type="primary"
             size="large"
@@ -1506,6 +1799,7 @@ export default function OrdersTab({
                   {packingOrder.customerName}
                 </div>
               </Card>
+
               <Card size="small">
                 <Text type="secondary">Status</Text>
                 <div style={{ fontWeight: 800, marginTop: 4 }}>
@@ -1514,6 +1808,7 @@ export default function OrdersTab({
                     : packingOrder.status.replace(/_/g, " ")}
                 </div>
               </Card>
+
               <Card size="small">
                 <Text type="secondary">Order</Text>
                 <div style={{ fontWeight: 800, marginTop: 4 }}>
@@ -1550,10 +1845,12 @@ export default function OrdersTab({
                     onChangeWeightValue={(index, value) =>
                       setPackingItems((prev) => {
                         const nextWeights = [...(state.weights || [])];
+
                         nextWeights[index] = {
                           ...(nextWeights[index] || { unit: "kg" }),
                           value,
                         };
+
                         return {
                           ...prev,
                           [item.id]: {
@@ -1566,10 +1863,12 @@ export default function OrdersTab({
                     onChangeWeightUnit={(index, unit) =>
                       setPackingItems((prev) => {
                         const nextWeights = [...(state.weights || [])];
+
                         nextWeights[index] = {
                           ...(nextWeights[index] || { value: undefined }),
                           unit,
                         };
+
                         return {
                           ...prev,
                           [item.id]: {
@@ -1588,6 +1887,227 @@ export default function OrdersTab({
       </Modal>
 
       <Modal
+        title="Waste product"
+        open={wasteModalOpen}
+        onCancel={() => {
+          setWasteModalOpen(false);
+          setWasteOrder(null);
+          setWasteItem(null);
+          setWasteQty(1);
+        }}
+        onOk={confirmWasteOrderItem}
+        okText="Waste"
+        okButtonProps={{ danger: true }}
+        confirmLoading={savingWaste}
+      >
+        {wasteItem ? (
+          <div style={{ display: "grid", gap: 12 }}>
+            <Alert
+              type="warning"
+              showIcon
+              message="Record product waste"
+              description="This will reduce the quantity on the order. If you waste the full quantity, the item will be removed from the order."
+            />
+
+            <div>
+              <Text type="secondary">Product</Text>
+              <div style={{ fontWeight: 800 }}>
+                {String((wasteItem as any).productName || "Item")}
+              </div>
+            </div>
+
+            <div>
+              <Text type="secondary">Quantity to waste</Text>
+              <InputNumber
+                min={1}
+                max={Math.max(1, Number((wasteItem as any).qty || 1))}
+                value={wasteQty}
+                onChange={(v) => setWasteQty(Number(v || 1))}
+                style={{ width: "100%", marginTop: 6 }}
+              />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Current order quantity: {Number((wasteItem as any).qty || 0)}
+              </Text>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        title="Create Order"
+        open={createOrderOpen}
+        onCancel={() => setCreateOrderOpen(false)}
+        onOk={createAdminOrder}
+        okText="Create Order"
+        confirmLoading={savingCreateOrder}
+        width={900}
+      >
+        <div style={{ display: "grid", gap: 14 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+              gap: 12,
+            }}
+          >
+            <div>
+              <Text type="secondary">Customer name</Text>
+              <Input
+                value={createCustomerName}
+                onChange={(e) => setCreateCustomerName(e.target.value)}
+                placeholder="Customer name"
+              />
+            </div>
+
+            <div>
+              <Text type="secondary">Customer phone</Text>
+              <Input
+                value={createCustomerPhone}
+                onChange={(e) => setCreateCustomerPhone(e.target.value)}
+                placeholder="Customer phone"
+              />
+            </div>
+
+            <div>
+              <Text type="secondary">Customer email</Text>
+              <Input
+                value={createCustomerEmail}
+                onChange={(e) => setCreateCustomerEmail(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+
+            <div>
+              <Text type="secondary">Pricing tier</Text>
+              <Select
+                value={createPricingTier}
+                onChange={setCreatePricingTier}
+                style={{ width: "100%" }}
+                options={[
+                  { value: "RETAIL", label: "Retail" },
+                  { value: "WHOLESALE", label: "Wholesale" },
+                ]}
+              />
+            </div>
+
+            <div>
+              <Text type="secondary">Delivery location</Text>
+              <Select
+                allowClear
+                value={createDropoffLocationId || undefined}
+                onChange={(v) => {
+                  setCreateDropoffLocationId(v || "");
+                  setCreateDeliveryScheduleId("");
+                }}
+                placeholder="Select location"
+                style={{ width: "100%" }}
+                options={locationOptions}
+              />
+            </div>
+
+            <div>
+              <Text type="secondary">Delivery schedule</Text>
+              <Select
+                allowClear
+                value={createDeliveryScheduleId || undefined}
+                onChange={(v) => setCreateDeliveryScheduleId(v || "")}
+                placeholder="Select schedule"
+                style={{ width: "100%" }}
+                options={createScheduleOptions}
+              />
+            </div>
+          </div>
+
+          <div>
+            <Text type="secondary">Notes</Text>
+            <Input.TextArea
+              value={createNotes}
+              onChange={(e) => setCreateNotes(e.target.value)}
+              rows={2}
+              placeholder="Optional"
+            />
+          </div>
+
+          <Divider style={{ margin: "4px 0" }} />
+
+          <div style={{ display: "grid", gap: 10 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "center",
+              }}
+            >
+              <Text strong>Products</Text>
+              <Button
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() =>
+                  setCreateItems((prev) => [...prev, { productId: "", qty: 1 }])
+                }
+              >
+                Add product
+              </Button>
+            </div>
+
+            {createItems.map((row, index) => (
+              <Card size="small" key={index}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile ? "1fr" : "1fr 120px 90px",
+                    gap: 10,
+                    alignItems: "center",
+                  }}
+                >
+                  <Select
+                    showSearch
+                    value={row.productId || undefined}
+                    onChange={(v) =>
+                      setCreateItems((prev) =>
+                        prev.map((x, i) =>
+                          i === index ? { ...x, productId: v } : x,
+                        ),
+                      )
+                    }
+                    placeholder="Select product"
+                    options={productOptions}
+                    optionFilterProp="label"
+                  />
+
+                  <InputNumber
+                    min={1}
+                    value={row.qty}
+                    onChange={(v) =>
+                      setCreateItems((prev) =>
+                        prev.map((x, i) =>
+                          i === index ? { ...x, qty: Number(v || 1) } : x,
+                        ),
+                      )
+                    }
+                    style={{ width: "100%" }}
+                  />
+
+                  <Button
+                    danger
+                    disabled={createItems.length <= 1}
+                    onClick={() =>
+                      setCreateItems((prev) =>
+                        prev.filter((_, i) => i !== index),
+                      )
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
         title="Packer Initials"
         open={packingInitialsOpen}
         onCancel={() => setPackingInitialsOpen(false)}
@@ -1597,6 +2117,7 @@ export default function OrdersTab({
       >
         <div style={{ display: "grid", gap: 12 }}>
           <Text>Enter the initials of the person packing this order.</Text>
+
           <Input
             value={packerInitials}
             onChange={(e) => setPackerInitials(e.target.value.toUpperCase())}
