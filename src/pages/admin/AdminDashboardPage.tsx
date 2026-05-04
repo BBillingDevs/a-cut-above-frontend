@@ -376,7 +376,7 @@ export default function AdminDashboardPage() {
             ? [
               {
                 key: "dropoffs",
-                label: "Deliveries",
+                label: "Ordering Schedules",
                 children: (
                   <DropoffLocationsTab loading={loading} onReload={loadAll} />
                 ),
@@ -438,7 +438,7 @@ export default function AdminDashboardPage() {
             ? [
               {
                 key: "windows",
-                label: "Order Windows",
+                label: "Active Ordering",
                 children: (
                   <WindowsTab
                     loading={loading}

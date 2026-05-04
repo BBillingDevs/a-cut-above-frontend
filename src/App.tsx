@@ -1,4 +1,5 @@
 // src/App.tsx
+
 import React, { useCallback, useEffect, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Layout, message } from "antd";
@@ -9,6 +10,8 @@ import TopBar from "./components/TopBar";
 import AdminTopBar from "./components/AdminTopBar";
 
 import ShopPage from "./pages/public/ShopPage";
+import AboutPage from "./pages/public/AboutPage";
+import ContactPage from "./pages/public/ContactPage";
 import CheckoutPage from "./pages/public/CheckoutPage";
 import TrackOrderPage from "./pages/public/TrackOrderPage";
 import WholesalePinPage from "./pages/public/WholesalePinPage";
@@ -23,12 +26,12 @@ export default function App() {
   const navigate = useNavigate();
   const isAdminRoute = location.pathname.startsWith("/admin");
 
-  // ✅ Real admin auth state (don’t guess localStorage)
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [checkingAdminAuth, setCheckingAdminAuth] = useState(false);
 
   const checkAdminAuth = useCallback(async () => {
     setCheckingAdminAuth(true);
+
     try {
       await api.get("/api/admin/me");
       setAdminAuthed(true);
@@ -39,18 +42,17 @@ export default function App() {
     }
   }, []);
 
-  // ✅ Re-check auth when entering admin routes (or route changes within admin)
   useEffect(() => {
-    if (isAdminRoute) checkAdminAuth();
+    if (isAdminRoute) {
+      checkAdminAuth();
+    }
   }, [isAdminRoute, location.pathname, checkAdminAuth]);
 
-  // ✅ Refresh (simple: reload current route)
   const refreshAdmin = useCallback(() => {
     checkAdminAuth();
     navigate(0);
   }, [checkAdminAuth, navigate]);
 
-  // ✅ Logout
   const logoutAdmin = useCallback(async () => {
     try {
       await api.post("/api/admin/auth/logout");
@@ -92,13 +94,19 @@ export default function App() {
           }}
         >
           <Routes>
-            <Route path="/" element={<ShopPage />} />
+            <Route path="/" element={<AboutPage />} />
+            <Route path="/about" element={<AboutPage />} />
+
             <Route path="/products" element={<ShopPage />} />
+            <Route path="/shop" element={<ShopPage />} />
+
+            <Route path="/contact" element={<ContactPage />} />
 
             <Route path="/wholesale" element={<WholesalePinPage />} />
 
             <Route path="/checkout" element={<CheckoutPage />} />
             <Route path="/track" element={<TrackOrderPage />} />
+            <Route path="/track-order" element={<TrackOrderPage />} />
 
             <Route path="/admin" element={<AdminLoginPage />} />
             <Route path="/admin/dashboard" element={<AdminDashboardPage />} />

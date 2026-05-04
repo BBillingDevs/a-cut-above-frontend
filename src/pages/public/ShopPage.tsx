@@ -1,7 +1,4 @@
 // src/pages/public/ShopPage.tsx
-// Full updated file based on your uploaded ShopPage.tsx.
-// Changes: taller product images + click image to preview full-size image in a modal.
-// Source: :contentReference[oaicite:0]{index=0}
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -42,7 +39,7 @@ const { useBreakpoint } = Grid;
 
 const PREFERRED_LOCATION_KEY = "aca_preferred_dropoff_location";
 const HEADER_STICKY_OFFSET = 95;
-const SEARCH_STICKY_HEIGHT = 58;
+const SEARCH_STICKY_HEIGHT = 82;
 const SIDEBAR_STICKY_TOP = HEADER_STICKY_OFFSET + SEARCH_STICKY_HEIGHT + 12;
 
 type WindowState = {
@@ -79,6 +76,7 @@ type PricedProduct = Product & {
 
 function asNumber(v: any): number | null {
   if (v === null || v === undefined || v === "") return null;
+
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : null;
 }
@@ -100,8 +98,11 @@ function resolveImageUrl(url?: string | null): string | null {
 
 function formatDeliveryDate(value?: string) {
   if (!value) return null;
+
   const d = new Date(value);
+
   if (Number.isNaN(d.getTime())) return value;
+
   return d.toLocaleDateString(undefined, {
     weekday: "long",
     day: "numeric",
@@ -192,6 +193,7 @@ export default function ShopPage() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const raw = params.get("q") || "";
+
     setShopSearch(raw ? decodeURIComponent(raw) : "");
   }, [location.search]);
 
@@ -201,7 +203,9 @@ export default function ShopPage() {
     };
 
     onScroll();
+
     window.addEventListener("scroll", onScroll, { passive: true });
+
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
@@ -209,8 +213,11 @@ export default function ShopPage() {
     const params = new URLSearchParams(location.search);
     const cleaned = next.trim();
 
-    if (cleaned) params.set("q", cleaned);
-    else params.delete("q");
+    if (cleaned) {
+      params.set("q", cleaned);
+    } else {
+      params.delete("q");
+    }
 
     const qs = params.toString();
 
@@ -222,6 +229,7 @@ export default function ShopPage() {
 
   function savePreferredLocation(id: string | null) {
     if (!id) return;
+
     localStorage.setItem(PREFERRED_LOCATION_KEY, id);
     setSelectedLocationId(id);
     setLocationPromptOpen(false);
@@ -253,9 +261,9 @@ export default function ShopPage() {
             sortOrder: Number(loc.sortOrder || 0),
             nextSchedule: loc.nextSchedule
               ? {
-                cutoffDate: String(loc.nextSchedule.cutoffDate),
-                deliveryDate: String(loc.nextSchedule.deliveryDate),
-              }
+                  cutoffDate: String(loc.nextSchedule.cutoffDate),
+                  deliveryDate: String(loc.nextSchedule.deliveryDate),
+                }
               : null,
           }),
         );
@@ -265,7 +273,9 @@ export default function ShopPage() {
       const savedLocationId = localStorage.getItem(PREFERRED_LOCATION_KEY);
 
       setSelectedLocationId((prev) => {
-        if (prev && activeLocations.some((loc) => loc.id === prev)) return prev;
+        if (prev && activeLocations.some((loc) => loc.id === prev)) {
+          return prev;
+        }
 
         if (
           savedLocationId &&
@@ -340,6 +350,7 @@ export default function ShopPage() {
 
   const locationUnavailable = useMemo(() => {
     if (!selectedLocation) return true;
+
     return !selectedLocation.nextSchedule?.deliveryDate;
   }, [selectedLocation]);
 
@@ -410,6 +421,7 @@ export default function ShopPage() {
 
   function summaryUnitLabel(p: any) {
     const u = String(p?.unit || "").toLowerCase();
+
     return u === "kg" ? "Price / kg" : "Price / pack";
   }
 
@@ -431,18 +443,23 @@ export default function ShopPage() {
 
   function inCartQty(productId: string) {
     const row = items.find((x) => String(x.product.id) === String(productId));
+
     return Number(row?.qty || 0);
   }
 
   function remainingStock(p: PricedProduct) {
     const s = stockFor(p);
+
     if (s === null) return null;
+
     return Math.max(0, s - inCartQty(p.id));
   }
 
   function isSoldOut(p: PricedProduct) {
     const s = stockFor(p);
+
     if (s === null) return false;
+
     return s <= 0;
   }
 
@@ -481,57 +498,47 @@ export default function ShopPage() {
 
   return (
     <div className="aca-page">
+      <div className="aca-page__top">
+        <Title
+          level={2}
+          className="aca-displayTitle"
+          style={{ marginBottom: 4 }}
+        >
+          From our farm
+        </Title>
+
+        <Text className="aca-subtitle">
+          Grass-fed, ethical and slow-raised meat.
+        </Text>
+      </div>
+
       <div
-        className="aca-page__top"
+        id="shop-sticky-start"
         style={{
-          display: "flex",
-          gap: 12,
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          flexDirection: isMobile ? "column" : "row",
+          position: "sticky",
+          top: HEADER_STICKY_OFFSET,
+          zIndex: 40,
+          marginTop: 12,
+          paddingTop: 8,
+          paddingBottom: 10,
+          background: "var(--aca-bg)",
         }}
       >
-        <div style={{ width: "100%" }}>
-          <Title
-            level={2}
-            className="aca-displayTitle"
-            style={{ marginBottom: 4 }}
-          >
-            From our farm
-          </Title>
-
-          <Text className="aca-subtitle">
-            Grass-fed, ethical and slow-raised meat.
-          </Text>
-        </div>
-
         <div
           style={{
-            width: isMobile ? "100%" : "auto",
-            display: "flex",
-            flexDirection: "column",
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr" : "220px 280px 1fr",
             gap: 10,
-            alignItems: isMobile ? "stretch" : "flex-end",
-            justifyContent: isMobile ? "flex-start" : "flex-end",
+            alignItems: "end",
           }}
         >
-          <div
-            style={{
-              width: isMobile ? "100%" : "auto",
-              display: "flex",
-              gap: 10,
-              alignItems: "center",
-              justifyContent: isMobile ? "flex-start" : "flex-end",
-            }}
-          >
-            <Text type="secondary" style={{ whiteSpace: "nowrap" }}>
-              Sort by:
-            </Text>
+          <div style={{ display: "grid", gap: 6 }}>
+            <Text type="secondary">Sort by:</Text>
 
             <Select
               value={sort}
               onChange={setSort}
-              style={{ width: isMobile ? "100%" : 220 }}
+              style={{ width: "100%" }}
               options={[
                 { value: "featured", label: "Best Sellers" },
                 { value: "price_asc", label: "Price: Low to High" },
@@ -540,14 +547,7 @@ export default function ShopPage() {
             />
           </div>
 
-          <div
-            style={{
-              width: isMobile ? "100%" : 320,
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-            }}
-          >
+          <div style={{ display: "grid", gap: 6 }}>
             <Text type="secondary">Delivery location:</Text>
 
             <Select
@@ -561,34 +561,24 @@ export default function ShopPage() {
               }))}
             />
           </div>
-        </div>
-      </div>
 
-      <div
-        id="shop-sticky-start"
-        style={{
-          position: "sticky",
-          top: HEADER_STICKY_OFFSET,
-          zIndex: 40,
-          marginTop: 10,
-          paddingTop: 6,
-          paddingBottom: 8,
-          background: "var(--aca-bg)",
-        }}
-      >
-        <div className="aca-search">
-          <Input
-            allowClear
-            value={shopSearch}
-            onChange={(e) => {
-              const next = e.target.value;
-              setShopSearch(next);
-              setUrlQuery(next);
-            }}
-            onPressEnter={() => setUrlQuery(shopSearch)}
-            prefix={<SearchOutlined style={{ color: "rgba(0,0,0,0.35)" }} />}
-            placeholder="Search for ribeye, wors, mince..."
-          />
+          <div style={{ display: "grid", gap: 6 }}>
+            <Text type="secondary">Search:</Text>
+
+            <Input
+              allowClear
+              value={shopSearch}
+              onChange={(e) => {
+                const next = e.target.value;
+
+                setShopSearch(next);
+                setUrlQuery(next);
+              }}
+              onPressEnter={() => setUrlQuery(shopSearch)}
+              prefix={<SearchOutlined style={{ color: "rgba(0,0,0,0.35)" }} />}
+              placeholder="Search for ribeye, wors, mince..."
+            />
+          </div>
         </div>
       </div>
 
@@ -662,6 +652,7 @@ export default function ShopPage() {
                       <IconPreview iconKey={c.iconKey} />
                     )}
                   </span>
+
                   {c.label}
                 </button>
               );
@@ -714,7 +705,9 @@ export default function ShopPage() {
                 {categoryDefs.map((c) => (
                   <button
                     key={c.key}
-                    className={`aca-catItem ${activeCat === c.key ? "is-active" : ""}`}
+                    className={`aca-catItem ${
+                      activeCat === c.key ? "is-active" : ""
+                    }`}
                     onClick={() => setActiveCat(c.key)}
                     type="button"
                   >
@@ -725,6 +718,7 @@ export default function ShopPage() {
                         <IconPreview iconKey={c.iconKey} />
                       )}
                     </span>
+
                     <span>{c.label}</span>
                   </button>
                 ))}
@@ -933,6 +927,7 @@ export default function ShopPage() {
                                       }
 
                                       const rem = remainingStock(prod);
+
                                       if (rem === null || rem > 0) {
                                         setQty(row.product.id, qty + 1);
                                       }
@@ -1207,6 +1202,7 @@ export default function ShopPage() {
                         size={isMobile ? "middle" : "large"}
                         onChange={(v) => {
                           const desired = Math.max(1, Number(v || 1));
+
                           setQtyMap((m) => ({ ...m, [p.id]: desired }));
                         }}
                       />
